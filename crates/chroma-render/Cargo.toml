@@ -1,0 +1,28 @@
+[package]
+name = "chroma-render"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow.workspace = true
+ash.workspace = true
+chroma-base = { version = "0.1.0", path = "../chroma-base" }
+chroma-scene = { version = "0.1.0", path = "../chroma-scene" }
+chroma-shader = { version = "0.1.0", path = "../chroma-shader" }
+env_logger.workspace = true
+log.workspace = true
+nalgebra-glm.workspace = true
+vk-mem.workspace = true
+winit.workspace = true
+imgui.workspace = true
+imgui-rs-vulkan-renderer.workspace = true
+imgui-winit-support.workspace = true
+
+[dev-dependencies]
+serde = { version = "1.0.217", features = ["derive"] }
+serde_json = "1.0.135"
+
+[build-dependencies]
+chroma-base = { version = "0.1.0", path = "../chroma-base" }
+chroma-shader = { version = "0.1.0", path = "../chroma-shader" }
+reqwest = { workspace = true, features = ["blocking"] }

@@ -1,0 +1,11 @@
+[package]
+name = "chroma-shader"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow.workspace = true
+chroma-base = { version = "0.1.0", path = "../chroma-base" }
+env_logger.workspace = true
+glob.workspace = true
+log.workspace = true

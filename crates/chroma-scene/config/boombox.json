@@ -1,0 +1,14 @@
+{
+  "scene": "boombox",
+  "models": [
+    {
+      "path": "asset/glTF-Sample-Assets/Models/BoomBox/glTF/BoomBox.gltf",
+      "transform": {
+        "scale": 100.0,
+        "translation": [0.1, 0.01, 0.1],
+        "rotation": [0, 0, 0]
+      }
+    }
+  ],
+  "skybox": "asset/hdri/golden_bay.exr"
+}

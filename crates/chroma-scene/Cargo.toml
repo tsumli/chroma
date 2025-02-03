@@ -24,3 +24,4 @@ nalgebra-glm.workspace = true
 reqwest = { workspace = true, features = ["blocking"] }
 exr.workspace = true
 image.workspace = true
+meshopt.workspace = true

@@ -61,10 +61,12 @@ pub fn compile(input_path: &Path) -> Result<()> {
 
 pub fn compile_all() -> Result<()> {
     let shader_src_root = get_shader_src_root().unwrap();
-    let extensions = ["vert", "frag", "comp", "rgen", "rmiss", "rchit", "rahit"]
-        .iter()
-        .cloned()
-        .collect();
+    let extensions = [
+        "vert", "frag", "comp", "rgen", "rmiss", "rchit", "rahit", "mesh", "task",
+    ]
+    .iter()
+    .cloned()
+    .collect();
     let target_paths = crate::utils::glob_shader_src(&shader_src_root, &extensions).unwrap();
     for path in target_paths {
         compile(&path)?;

@@ -97,6 +97,9 @@ pub struct Deferred {
     compute_pipelines: Vec<common::compute_pipeline::ComputePipeline>,
     compute_pipeline_layouts: Vec<pipeline_layout::PipelineLayout>,
     graphics_render_targets: HashMap<GraphicsRenderTarget, ImageBuffer>,
+    meshlet_buffers: Vec<common::buffer::Buffer>,
+    meshlet_vertices_buffers: Vec<common::buffer::Buffer>,
+    meshlet_triangle_buffers: Vec<common::buffer::Buffer>,
 }
 
 impl Deferred {
@@ -142,6 +145,9 @@ impl Deferred {
         let mut metallic_factors = Vec::new();
         let mut roughness_factors = Vec::new();
         let mut emissive_textures = Vec::new();
+        let mut meshlet_buffers = Vec::new();
+        let mut meshlet_vertices_buffers = Vec::new();
+        let mut meshlet_triangle_buffers = Vec::new();
         for model in scene.models.iter() {
             match model {
                 Model::Gltf(gltf_adapter) => {
@@ -236,6 +242,68 @@ impl Deferred {
                                 instance.clone(),
                             );
                             index_buffers.push(index_buffer);
+                        }
+                    }
+
+                    // meshlet
+                    log::info!("loading meshlet");
+                    {
+                        let positions_vec = gltf_adapter.read_positions();
+                        let indices_vec = gltf_adapter.read_indices();
+
+                        for primitive_i in 0..positions_vec.len() {
+                            let positions = &positions_vec[primitive_i];
+                            let indices = &indices_vec[primitive_i];
+                            let meshlet_object = chroma_scene::meshlet::generate_meshlets(
+                                positions.clone(),
+                                indices.clone(),
+                            );
+                            let meshlets = meshlet_object.meshlets;
+
+                            log::info!("meshlet count: {}", meshlets.len());
+                            let meshlet_buffer = common::buffer::Buffer::new(
+                                meshlets.as_ptr() as *const std::ffi::c_void,
+                                std::mem::size_of::<meshopt::ffi::meshopt_Meshlet>() as u64
+                                    * meshlets.len() as u64,
+                                vk::BufferUsageFlags::STORAGE_BUFFER,
+                                vk::MemoryPropertyFlags::HOST_VISIBLE
+                                    | vk::MemoryPropertyFlags::HOST_COHERENT,
+                                physical_device,
+                                ash_device.clone(),
+                                instance.clone(),
+                            );
+                            meshlet_buffers.push(meshlet_buffer);
+
+                            log::info!(
+                                "meshlet vertices count: {}",
+                                meshlet_object.meshlet_vertices.len()
+                            );
+                            let meshlet_vertices = meshlet_object.meshlet_vertices;
+                            let meshlet_vertices_buffer = common::buffer::Buffer::new(
+                                meshlet_vertices.as_ptr() as *const std::ffi::c_void,
+                                std::mem::size_of::<u32>() as u64 * meshlet_vertices.len() as u64,
+                                vk::BufferUsageFlags::STORAGE_BUFFER,
+                                vk::MemoryPropertyFlags::HOST_VISIBLE
+                                    | vk::MemoryPropertyFlags::HOST_COHERENT,
+                                physical_device,
+                                ash_device.clone(),
+                                instance.clone(),
+                            );
+                            meshlet_vertices_buffers.push(meshlet_vertices_buffer);
+
+                            let meshlet_triangles = meshlet_object.meshlet_triangles;
+                            log::info!("meshlet triangles count: {}", meshlet_triangles.len());
+                            let meshlet_triangle_buffer = common::buffer::Buffer::new(
+                                meshlet_triangles.as_ptr() as *const std::ffi::c_void,
+                                std::mem::size_of::<u8>() as u64 * meshlet_triangles.len() as u64,
+                                vk::BufferUsageFlags::STORAGE_BUFFER,
+                                vk::MemoryPropertyFlags::HOST_VISIBLE
+                                    | vk::MemoryPropertyFlags::HOST_COHERENT,
+                                physical_device,
+                                ash_device.clone(),
+                                instance.clone(),
+                            );
+                            meshlet_triangle_buffers.push(meshlet_triangle_buffer);
                         }
                     }
 
@@ -1615,6 +1683,9 @@ impl Deferred {
             compute_pipelines,
             compute_pipeline_layouts,
             graphics_render_targets,
+            meshlet_buffers,
+            meshlet_triangle_buffers,
+            meshlet_vertices_buffers,
             _transform_ubo: transform_ubo,
             _camera_ubo: camera_ubo,
             _base_color_textures: base_color_textures,

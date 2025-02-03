@@ -17,6 +17,7 @@ winit.workspace = true
 imgui.workspace = true
 imgui-rs-vulkan-renderer.workspace = true
 imgui-winit-support.workspace = true
+meshopt.workspace = true
 
 [dev-dependencies]
 serde = { version = "1.0.217", features = ["derive"] }

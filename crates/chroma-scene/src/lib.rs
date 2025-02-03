@@ -4,6 +4,7 @@ pub mod gltf;
 pub mod image;
 pub mod light;
 pub mod material;
+pub mod meshlet;
 pub mod model;
 pub mod scene;
 pub mod transform;

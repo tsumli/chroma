@@ -202,11 +202,6 @@ impl Deferred {
                                 let color =
                                     colors.map_or([1.0, 1.0, 1.0, 1.0], |color| color[vertex_i]);
 
-                                log::info!("size: {}", std::mem::size_of::<Vertex>());
-                                log::info!("size: {}", std::mem::size_of::<Vertex>());
-                                log::info!("size: {}", std::mem::size_of::<Vertex>());
-                                log::info!("size: {}", std::mem::size_of::<Vertex>());
-
                                 vertices.push(Vertex {
                                     position: Vec3::new(position[0], position[1], position[2]),
                                     uv: Vec2::new(uv[0], uv[1]),

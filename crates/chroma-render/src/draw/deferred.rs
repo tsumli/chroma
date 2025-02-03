@@ -62,6 +62,7 @@ enum GraphicsRenderTarget {
     Normal,
     DepthStencil,
     MetallicRoughness,
+    Emissive,
 }
 
 const NUM_GRAPHICS_DESCRIPTOR_SETS: usize = 2;
@@ -80,6 +81,7 @@ pub struct Deferred {
     index_buffers: Vec<common::index::IndexBuffer>,
     _base_color_textures: Vec<Texture>,
     _normal_textures: Vec<Texture>,
+    _emissive_textures: Vec<Texture>,
     _metallic_roughness_textures: Vec<Texture>,
     graphics_framebuffers: Vec<common::framebuffer::Framebuffer>,
     command_pool: common::command_pool::CommandPool,
@@ -139,6 +141,7 @@ impl Deferred {
         let mut metallic_roughness_textures = Vec::new();
         let mut metallic_factors = Vec::new();
         let mut roughness_factors = Vec::new();
+        let mut emissive_textures = Vec::new();
         for model in scene.models.iter() {
             match model {
                 Model::Gltf(gltf_adapter) => {
@@ -244,7 +247,7 @@ impl Deferred {
                         for image in images.iter_mut() {
                             let mut image = image
                                 .clone()
-                                .unwrap_or(chroma_scene::image::create_blank_image(1, 1));
+                                .unwrap_or(chroma_scene::image::create_white_image(1, 1));
                             image.add_alpha_if_not_exist();
                             let width = image.width;
                             let height = image.height;
@@ -291,7 +294,7 @@ impl Deferred {
                         for image in images.iter() {
                             let mut image = image
                                 .clone()
-                                .unwrap_or(chroma_scene::image::create_blank_image(1, 1));
+                                .unwrap_or(chroma_scene::image::create_white_image(1, 1));
                             image.add_alpha_if_not_exist();
 
                             let width = image.width;
@@ -329,6 +332,52 @@ impl Deferred {
                         normal_textures.extend(textures);
                     }
 
+                    // emissive images
+                    log::info!("loading emissive images");
+                    {
+                        let images = gltf_adapter.read_emissive_images();
+                        let mut textures = Vec::with_capacity(images.len());
+                        for image in images.iter() {
+                            let mut image = image
+                                .clone()
+                                .unwrap_or(chroma_scene::image::create_black_image(1, 1));
+                            image.add_alpha_if_not_exist();
+
+                            let width = image.width;
+                            let height = image.height;
+                            let texture = Texture::new(
+                                vec![image],
+                                vk::ImageCreateInfo::default()
+                                    .image_type(vk::ImageType::TYPE_2D)
+                                    .extent(
+                                        vk::Extent3D::default()
+                                            .width(width)
+                                            .height(height)
+                                            .depth(1),
+                                    )
+                                    .format(vk::Format::R8G8B8A8_SRGB)
+                                    .usage(
+                                        vk::ImageUsageFlags::TRANSFER_DST
+                                            | vk::ImageUsageFlags::SAMPLED,
+                                    )
+                                    .tiling(vk::ImageTiling::OPTIMAL)
+                                    .initial_layout(vk::ImageLayout::UNDEFINED)
+                                    .mip_levels(1)
+                                    .samples(vk::SampleCountFlags::TYPE_1)
+                                    .sharing_mode(vk::SharingMode::EXCLUSIVE)
+                                    .array_layers(1),
+                                vk::ImageViewType::TYPE_2D,
+                                graphics_compute_queue,
+                                command_pool.vk_command_pool(),
+                                physical_device,
+                                ash_device.clone(),
+                                instance.clone(),
+                            )?;
+                            textures.push(texture);
+                        }
+                        emissive_textures.extend(textures);
+                    }
+
                     // transmission images
                     log::info!("loading transmission images");
                     {
@@ -337,7 +386,7 @@ impl Deferred {
                         for image in images.iter_mut() {
                             let image = image
                                 .clone()
-                                .unwrap_or(chroma_scene::image::create_blank_image(1, 1));
+                                .unwrap_or(chroma_scene::image::create_white_image(1, 1));
                             let width = image.width;
                             let height = image.height;
                             let texture = Texture::new(
@@ -383,7 +432,7 @@ impl Deferred {
                         for image in images.iter() {
                             let mut image = image
                                 .clone()
-                                .unwrap_or(chroma_scene::image::create_blank_image(1, 1));
+                                .unwrap_or(chroma_scene::image::create_white_image(1, 1));
                             image.add_alpha_if_not_exist();
 
                             let width = image.width;
@@ -670,6 +719,41 @@ impl Deferred {
                     instance.clone(),
                 )?,
             );
+
+            // emissive
+            render_targets.insert(
+                GraphicsRenderTarget::Emissive,
+                ImageBuffer::new(
+                    &vk::ImageCreateInfo::default()
+                        .image_type(vk::ImageType::TYPE_2D)
+                        .format(vk::Format::R8G8B8A8_SRGB)
+                        .extent(
+                            vk::Extent3D::default()
+                                .width(swapchain.vk_swapchain_extent().width)
+                                .height(swapchain.vk_swapchain_extent().height)
+                                .depth(1),
+                        )
+                        .initial_layout(vk::ImageLayout::UNDEFINED)
+                        .usage(
+                            vk::ImageUsageFlags::COLOR_ATTACHMENT
+                                | vk::ImageUsageFlags::STORAGE
+                                | vk::ImageUsageFlags::SAMPLED,
+                        )
+                        .sharing_mode(vk::SharingMode::EXCLUSIVE)
+                        .array_layers(1)
+                        .mip_levels(1)
+                        .tiling(vk::ImageTiling::OPTIMAL)
+                        .samples(vk::SampleCountFlags::TYPE_1),
+                    vk::ImageViewType::TYPE_2D,
+                    vk::MemoryPropertyFlags::DEVICE_LOCAL,
+                    vk::ImageAspectFlags::COLOR,
+                    command_pool.vk_command_pool(),
+                    graphics_compute_queue,
+                    physical_device,
+                    ash_device.clone(),
+                    instance.clone(),
+                )?,
+            );
             render_targets
         };
 
@@ -686,10 +770,10 @@ impl Deferred {
                     vk::DescriptorPoolSize::default()
                         .ty(vk::DescriptorType::UNIFORM_BUFFER)
                         .descriptor_count(MAX_FRAMES_IN_FLIGHT as u32 * primitive_size as u32 * 2),
-                    // color + normal + metallic_roughness
+                    // color + normal + metallic_roughness + emissive
                     vk::DescriptorPoolSize::default()
                         .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                        .descriptor_count(MAX_FRAMES_IN_FLIGHT as u32 * primitive_size as u32 * 3),
+                        .descriptor_count(MAX_FRAMES_IN_FLIGHT as u32 * primitive_size as u32 * 4),
                 ])
                 .flags(vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET),
             ash_device.clone(),
@@ -721,6 +805,12 @@ impl Deferred {
                     // metallic roughness
                     vk::DescriptorSetLayoutBinding::default()
                         .binding(3)
+                        .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                        .descriptor_count(1)
+                        .stage_flags(vk::ShaderStageFlags::FRAGMENT),
+                    // emissive
+                    vk::DescriptorSetLayoutBinding::default()
+                        .binding(4)
                         .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
                         .descriptor_count(1)
                         .stage_flags(vk::ShaderStageFlags::FRAGMENT),
@@ -844,6 +934,26 @@ impl Deferred {
                         .image_info(&metallic_roughness_image_info),
                 );
 
+                // emissive
+                let emissive_image_info = [vk::DescriptorImageInfo::default()
+                    .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                    .image_view(emissive_textures[primitive_i].image_view())
+                    .sampler(create_texture_sampler(
+                        1,
+                        physical_device,
+                        ash_device.clone(),
+                        &instance,
+                        &entry,
+                    ))];
+                descriptor_writes.push(
+                    vk::WriteDescriptorSet::default()
+                        .dst_set(graphics_descriptor_sets[frame_i].vk_descriptor_set(set_i))
+                        .dst_binding(4)
+                        .dst_array_element(0)
+                        .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                        .image_info(&emissive_image_info),
+                );
+
                 // material
                 let material_ubo_buffer_info = [vk::DescriptorBufferInfo::default()
                     .buffer(material_ubo[primitive_i].vk_buffer(frame_i))
@@ -913,6 +1023,21 @@ impl Deferred {
                     .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
                     .initial_layout(vk::ImageLayout::UNDEFINED)
                     .final_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL),
+                // emissive
+                vk::AttachmentDescription::default()
+                    .format(
+                        graphics_render_targets
+                            .get(&GraphicsRenderTarget::Emissive)
+                            .unwrap()
+                            .format(),
+                    )
+                    .samples(vk::SampleCountFlags::TYPE_1)
+                    .load_op(vk::AttachmentLoadOp::CLEAR)
+                    .store_op(vk::AttachmentStoreOp::STORE)
+                    .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
+                    .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
+                    .initial_layout(vk::ImageLayout::UNDEFINED)
+                    .final_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL),
                 // depth
                 vk::AttachmentDescription::default()
                     .format(
@@ -943,10 +1068,14 @@ impl Deferred {
                 vk::AttachmentReference::default()
                     .attachment(2)
                     .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL),
+                // emissive
+                vk::AttachmentReference::default()
+                    .attachment(3)
+                    .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL),
             ];
 
             let depth_stencil_attachment = vk::AttachmentReference::default()
-                .attachment(3)
+                .attachment(4)
                 .layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
             let subpasses = [vk::SubpassDescription::default()
@@ -1063,6 +1192,16 @@ impl Deferred {
                     .src_alpha_blend_factor(vk::BlendFactor::ONE)
                     .dst_alpha_blend_factor(vk::BlendFactor::ZERO)
                     .alpha_blend_op(vk::BlendOp::ADD),
+                // emissive
+                vk::PipelineColorBlendAttachmentState::default()
+                    .blend_enable(true)
+                    .color_write_mask(vk::ColorComponentFlags::RGBA)
+                    .src_color_blend_factor(vk::BlendFactor::SRC_ALPHA)
+                    .dst_color_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
+                    .color_blend_op(vk::BlendOp::ADD)
+                    .src_alpha_blend_factor(vk::BlendFactor::ONE)
+                    .dst_alpha_blend_factor(vk::BlendFactor::ZERO)
+                    .alpha_blend_op(vk::BlendOp::ADD),
             ];
 
             let color_blend_state = vk::PipelineColorBlendStateCreateInfo::default()
@@ -1117,6 +1256,10 @@ impl Deferred {
                     .image_view(),
                 graphics_render_targets
                     .get(&GraphicsRenderTarget::MetallicRoughness)
+                    .unwrap()
+                    .image_view(),
+                graphics_render_targets
+                    .get(&GraphicsRenderTarget::Emissive)
                     .unwrap()
                     .image_view(),
                 graphics_render_targets
@@ -1187,6 +1330,12 @@ impl Deferred {
                         .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
                         .descriptor_count(1)
                         .stage_flags(vk::ShaderStageFlags::COMPUTE),
+                    // emissive
+                    vk::DescriptorSetLayoutBinding::default()
+                        .binding(5)
+                        .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
+                        .descriptor_count(1)
+                        .stage_flags(vk::ShaderStageFlags::COMPUTE),
                 ]),
                 ash_device.clone(),
             ),
@@ -1217,10 +1366,10 @@ impl Deferred {
                     vk::DescriptorPoolSize::default()
                         .ty(vk::DescriptorType::SAMPLED_IMAGE)
                         .descriptor_count(MAX_FRAMES_IN_FLIGHT as u32),
-                    // color + normal + output + skybox + metallic_roughness
+                    // color + normal + output + skybox + metallic_roughness + emissive
                     vk::DescriptorPoolSize::default()
                         .ty(vk::DescriptorType::STORAGE_IMAGE)
-                        .descriptor_count((MAX_FRAMES_IN_FLIGHT as u32) * 5),
+                        .descriptor_count((MAX_FRAMES_IN_FLIGHT as u32) * 6),
                 ])
                 .flags(vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET),
             ash_device.clone(),
@@ -1365,6 +1514,24 @@ impl Deferred {
                     .image_info(&metallic_roughness_image_info),
             );
 
+            // emissive
+            let emissive_image_info = [vk::DescriptorImageInfo::default()
+                .image_view(
+                    graphics_render_targets
+                        .get(&GraphicsRenderTarget::Emissive)
+                        .unwrap()
+                        .image_view(),
+                )
+                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)];
+            descriptor_writes.push(
+                vk::WriteDescriptorSet::default()
+                    .dst_set(compute_descriptor_sets[frame_i].vk_descriptor_set(1))
+                    .dst_binding(5)
+                    .dst_array_element(0)
+                    .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
+                    .image_info(&emissive_image_info),
+            );
+
             // skybox
             let skybox_image_info = if let Some(skybox_resources) = &skybox_resources {
                 [vk::DescriptorImageInfo::default()
@@ -1453,6 +1620,7 @@ impl Deferred {
             _base_color_textures: base_color_textures,
             _normal_textures: normal_textures,
             _metallic_roughness_textures: metallic_roughness_textures,
+            _emissive_textures: emissive_textures,
             _skybox_resources: skybox_resources,
         })
     }
@@ -1477,6 +1645,12 @@ impl DrawStrategy for Deferred {
                 },
             },
             // metallic_roughness
+            vk::ClearValue {
+                color: vk::ClearColorValue {
+                    float32: [0.0, 0.0, 0.0, 0.0],
+                },
+            },
+            // emissive
             vk::ClearValue {
                 color: vk::ClearColorValue {
                     float32: [0.0, 0.0, 0.0, 0.0],

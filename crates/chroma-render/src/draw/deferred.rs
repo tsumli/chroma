@@ -2,6 +2,7 @@ use super::strategy::DrawStrategy;
 use crate::{
     common::{
         self,
+        buffer::allocate_device_local_buffer,
         camera::{
             CameraParams,
             TransformParams,
@@ -10,7 +11,6 @@ use crate::{
         descriptor_pool,
         device::find_queue_family,
         image_buffer::ImageBuffer,
-        index::Index,
         material::MaterialParams,
         pipeline_layout,
         surface,
@@ -45,6 +45,7 @@ use chroma_scene::{
         ModelTrait as _,
     },
 };
+use core::task;
 use nalgebra_glm::{
     Vec2,
     Vec3,
@@ -53,6 +54,7 @@ use nalgebra_glm::{
 use std::{
     collections::HashMap,
     ffi::CString,
+    os::unix::process,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -77,8 +79,7 @@ pub struct Deferred {
     _transform_ubo: uniform_buffer::UniformBuffer<TransformParams>,
     _camera_ubo: uniform_buffer::UniformBuffer<CameraParams>,
     material_ubo: Vec<uniform_buffer::UniformBuffer<common::material::MaterialParams>>,
-    vertex_buffers: Vec<common::vertex::VertexBuffer>,
-    index_buffers: Vec<common::index::IndexBuffer>,
+    vertex_buffers: Vec<common::buffer::Buffer>,
     _base_color_textures: Vec<Texture>,
     _normal_textures: Vec<Texture>,
     _emissive_textures: Vec<Texture>,
@@ -97,6 +98,10 @@ pub struct Deferred {
     compute_pipelines: Vec<common::compute_pipeline::ComputePipeline>,
     compute_pipeline_layouts: Vec<pipeline_layout::PipelineLayout>,
     graphics_render_targets: HashMap<GraphicsRenderTarget, ImageBuffer>,
+    meshlet_buffers: Vec<common::buffer::Buffer>,
+    meshlet_vertices_buffers: Vec<common::buffer::Buffer>,
+    meshlet_triangle_buffers: Vec<common::buffer::Buffer>,
+    mesh_shader_device: ash::ext::mesh_shader::Device,
 }
 
 impl Deferred {
@@ -132,7 +137,6 @@ impl Deferred {
 
         log::info!("loading models");
         let mut vertex_buffers = Vec::new();
-        let mut index_buffers = Vec::new();
         let mut base_color_textures = Vec::new();
         let mut base_color_factors = Vec::new();
         let mut normal_textures = Vec::new();
@@ -142,6 +146,9 @@ impl Deferred {
         let mut metallic_factors = Vec::new();
         let mut roughness_factors = Vec::new();
         let mut emissive_textures = Vec::new();
+        let mut meshlet_buffers = Vec::new();
+        let mut meshlet_vertices_buffers = Vec::new();
+        let mut meshlet_triangle_buffers = Vec::new();
         for model in scene.models.iter() {
             match model {
                 Model::Gltf(gltf_adapter) => {
@@ -205,10 +212,13 @@ impl Deferred {
                                     color: Vec4::new(color[0], color[1], color[2], color[3]),
                                 });
                             }
-                            let vertex_buffer = common::vertex::VertexBuffer::new(
-                                vertices,
-                                graphics_compute_queue,
-                                command_pool.vk_command_pool(),
+                            let vertex_buffer = common::buffer::Buffer::new(
+                                vertices.as_ptr() as *const std::ffi::c_void,
+                                std::mem::size_of::<Vertex>() as u64,
+                                vertices.len() as u64,
+                                vk::BufferUsageFlags::STORAGE_BUFFER,
+                                vk::MemoryPropertyFlags::HOST_VISIBLE
+                                    | vk::MemoryPropertyFlags::HOST_COHERENT,
                                 physical_device,
                                 ash_device.clone(),
                                 instance.clone(),
@@ -217,25 +227,61 @@ impl Deferred {
                         }
                     }
 
-                    // index buffer
-                    log::info!("loading index buffer");
+                    // meshlet
+                    log::info!("loading meshlet");
                     {
+                        let positions_vec = gltf_adapter.read_positions();
                         let indices_vec = gltf_adapter.read_indices();
-                        for indices in indices_vec {
-                            let indices = indices
-                                .iter()
-                                .map(|index| Index(*index as u32))
-                                .collect::<Vec<_>>();
 
-                            let index_buffer = common::index::IndexBuffer::new(
-                                indices,
-                                graphics_compute_queue,
+                        for primitive_i in 0..positions_vec.len() {
+                            let positions = &positions_vec[primitive_i];
+                            let indices = &indices_vec[primitive_i];
+                            let meshlet_object = chroma_scene::meshlet::generate_meshlets(
+                                positions.clone(),
+                                indices.clone(),
+                            );
+                            let meshlets = meshlet_object.meshlets;
+
+                            let meshlet_buffer = allocate_device_local_buffer(
+                                meshlets.as_ptr() as *const std::ffi::c_void,
+                                std::mem::size_of::<meshopt::ffi::meshopt_Meshlet>() as u64,
+                                meshlets.len() as u64,
+                                vk::BufferUsageFlags::STORAGE_BUFFER,
                                 command_pool.vk_command_pool(),
+                                graphics_compute_queue,
                                 physical_device,
                                 ash_device.clone(),
                                 instance.clone(),
                             );
-                            index_buffers.push(index_buffer);
+                            meshlet_buffers.push(meshlet_buffer);
+
+                            let meshlet_vertices = meshlet_object.meshlet_vertices;
+                            let meshlet_vertices_buffer = allocate_device_local_buffer(
+                                meshlet_vertices.as_ptr() as *const std::ffi::c_void,
+                                std::mem::size_of::<u32>() as u64,
+                                meshlet_vertices.len() as u64,
+                                vk::BufferUsageFlags::STORAGE_BUFFER,
+                                command_pool.vk_command_pool(),
+                                graphics_compute_queue,
+                                physical_device,
+                                ash_device.clone(),
+                                instance.clone(),
+                            );
+                            meshlet_vertices_buffers.push(meshlet_vertices_buffer);
+
+                            let meshlet_triangles = meshlet_object.meshlet_triangles;
+                            let meshlet_triangle_buffer = allocate_device_local_buffer(
+                                meshlet_triangles.as_ptr() as *const std::ffi::c_void,
+                                std::mem::size_of::<u8>() as u64,
+                                meshlet_triangles.len() as u64,
+                                vk::BufferUsageFlags::STORAGE_BUFFER,
+                                command_pool.vk_command_pool(),
+                                graphics_compute_queue,
+                                physical_device,
+                                ash_device.clone(),
+                                instance.clone(),
+                            );
+                            meshlet_triangle_buffers.push(meshlet_triangle_buffer);
                         }
                     }
 
@@ -770,6 +816,10 @@ impl Deferred {
                     vk::DescriptorPoolSize::default()
                         .ty(vk::DescriptorType::UNIFORM_BUFFER)
                         .descriptor_count(MAX_FRAMES_IN_FLIGHT as u32 * primitive_size as u32 * 2),
+                    // meshlet + meshlet vertices + meshlet triangles + vertex inputs
+                    vk::DescriptorPoolSize::default()
+                        .ty(vk::DescriptorType::STORAGE_BUFFER)
+                        .descriptor_count(MAX_FRAMES_IN_FLIGHT as u32 * primitive_size as u32 * 4),
                     // color + normal + metallic_roughness + emissive
                     vk::DescriptorPoolSize::default()
                         .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
@@ -789,7 +839,7 @@ impl Deferred {
                         .binding(0)
                         .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                         .descriptor_count(1)
-                        .stage_flags(vk::ShaderStageFlags::VERTEX),
+                        .stage_flags(vk::ShaderStageFlags::MESH_EXT),
                     // color
                     vk::DescriptorSetLayoutBinding::default()
                         .binding(1)
@@ -826,6 +876,30 @@ impl Deferred {
                         .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                         .descriptor_count(1)
                         .stage_flags(vk::ShaderStageFlags::FRAGMENT),
+                    // meshlet
+                    vk::DescriptorSetLayoutBinding::default()
+                        .binding(1)
+                        .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                        .descriptor_count(1)
+                        .stage_flags(vk::ShaderStageFlags::MESH_EXT),
+                    // meshlet vertices
+                    vk::DescriptorSetLayoutBinding::default()
+                        .binding(2)
+                        .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                        .descriptor_count(1)
+                        .stage_flags(vk::ShaderStageFlags::MESH_EXT),
+                    // meshlet triangles
+                    vk::DescriptorSetLayoutBinding::default()
+                        .binding(3)
+                        .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                        .descriptor_count(1)
+                        .stage_flags(vk::ShaderStageFlags::MESH_EXT),
+                    // vertex inputs
+                    vk::DescriptorSetLayoutBinding::default()
+                        .binding(4)
+                        .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                        .descriptor_count(1)
+                        .stage_flags(vk::ShaderStageFlags::MESH_EXT),
                 ]),
                 ash_device.clone(),
             ),
@@ -969,6 +1043,74 @@ impl Deferred {
                         .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                         .buffer_info(&material_ubo_buffer_info),
                 );
+
+                // meshlet
+                let meshlet_buffer_info = [vk::DescriptorBufferInfo::default()
+                    .buffer(meshlet_buffers[primitive_i].vk_buffer())
+                    .offset(0)
+                    .range(meshlet_buffers[primitive_i].size() as u64)];
+                descriptor_writes.push(
+                    vk::WriteDescriptorSet::default()
+                        .dst_set(
+                            graphics_descriptor_sets[frame_i].vk_descriptor_set(set_i + 1),  // Need to +1 for descriptor set 1
+                        )
+                        .dst_binding(1)
+                        .dst_array_element(0)
+                        .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                        .buffer_info(&meshlet_buffer_info),
+                );
+
+                // meshlet vertices
+                let meshlet_vertices_buffer_info = [vk::DescriptorBufferInfo::default()
+                    .buffer(meshlet_vertices_buffers[primitive_i].vk_buffer())
+                    .offset(0)
+                    .range(meshlet_vertices_buffers[primitive_i].size() as u64)];
+                descriptor_writes.push(
+                    vk::WriteDescriptorSet::default()
+                        .dst_set(
+                            graphics_descriptor_sets[frame_i].vk_descriptor_set(set_i + 1),  // Need to +1 for descriptor set 1
+                        )
+                        .dst_binding(2)
+                        .dst_array_element(0)
+                        .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                        .buffer_info(&meshlet_vertices_buffer_info),
+                );
+
+                // meshlet triangles
+                let meshlet_triangle_buffer_info = [vk::DescriptorBufferInfo::default()
+                    .buffer(meshlet_triangle_buffers[primitive_i].vk_buffer())
+                    .offset(0)
+                    .range(meshlet_triangle_buffers[primitive_i].size() as u64)];
+                descriptor_writes.push(
+                    vk::WriteDescriptorSet::default()
+                        .dst_set(
+                            graphics_descriptor_sets[frame_i].vk_descriptor_set(set_i + 1),  // Need to +1 for descriptor set 1
+                        )
+                        .dst_binding(3)
+                        .dst_array_element(0)
+                        .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                        .buffer_info(&meshlet_triangle_buffer_info),
+                );
+
+                // vertex inputs
+                let vertex_input_buffer_info = [vk::DescriptorBufferInfo::default()
+                    .buffer(vertex_buffers[primitive_i].vk_buffer())
+                    .offset(0)
+                    .range(
+                        std::mem::size_of::<Vertex>() as u64
+                            * vertex_buffers[primitive_i].len() as u64,
+                    )];
+                descriptor_writes.push(
+                    vk::WriteDescriptorSet::default()
+                        .dst_set(
+                            graphics_descriptor_sets[frame_i].vk_descriptor_set(set_i + 1),  // Need to +1 for descriptor set 1
+                        )
+                        .dst_binding(4)
+                        .dst_array_element(0)
+                        .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                        .buffer_info(&vertex_input_buffer_info),
+                );
+
                 unsafe {
                     ash_device.update_descriptor_sets(&descriptor_writes, &[]);
                 }
@@ -1111,17 +1253,23 @@ impl Deferred {
         let mut graphics_pipelines = Vec::new();
         for frame_i in 0..MAX_FRAMES_IN_FLIGHT {
             let spv_root = get_shader_spv_root()?;
-            let vert_shader_code = read_shader_code(&spv_root.join("deferred/shader.vert.spv"))?;
+            let task_shader_code = read_shader_code(&spv_root.join("deferred/shader.task.spv"))?;
+            let mesh_shader_code = read_shader_code(&spv_root.join("deferred/shader.mesh.spv"))?;
             let frag_shader_code = read_shader_code(&spv_root.join("deferred/shader.frag.spv"))?;
-            let vert_shader_module = create_shader_module(&ash_device, vert_shader_code)?;
+            let task_shader_module = create_shader_module(&ash_device, task_shader_code)?;
+            let mesh_shader_module = create_shader_module(&ash_device, mesh_shader_code)?;
             let frag_shader_module = create_shader_module(&ash_device, frag_shader_code)?;
 
             let main_function_name = CString::new("main")?;
 
             let shader_stages = [
                 vk::PipelineShaderStageCreateInfo::default()
-                    .module(vert_shader_module)
-                    .stage(vk::ShaderStageFlags::VERTEX)
+                    .module(task_shader_module)
+                    .stage(vk::ShaderStageFlags::TASK_EXT)
+                    .name(&main_function_name),
+                vk::PipelineShaderStageCreateInfo::default()
+                    .module(mesh_shader_module)
+                    .stage(vk::ShaderStageFlags::MESH_EXT)
                     .name(&main_function_name),
                 vk::PipelineShaderStageCreateInfo::default()
                     .module(frag_shader_module)
@@ -1237,7 +1385,7 @@ impl Deferred {
             )?;
 
             unsafe {
-                ash_device.destroy_shader_module(vert_shader_module, None);
+                ash_device.destroy_shader_module(mesh_shader_module, None);
                 ash_device.destroy_shader_module(frag_shader_module, None);
             }
             graphics_pipelines.push(graphics_pipeline);
@@ -1598,9 +1746,10 @@ impl Deferred {
             compute_pipelines.push(compute_pipeline);
         }
 
+        let mesh_shader_device = ash::ext::mesh_shader::Device::new(&instance, &ash_device);
+
         Ok(Self {
             vertex_buffers,
-            index_buffers,
             material_ubo,
             ash_device,
             graphics_framebuffers,
@@ -1615,6 +1764,10 @@ impl Deferred {
             compute_pipelines,
             compute_pipeline_layouts,
             graphics_render_targets,
+            meshlet_buffers,
+            meshlet_triangle_buffers,
+            meshlet_vertices_buffers,
+            mesh_shader_device,
             _transform_ubo: transform_ubo,
             _camera_ubo: camera_ubo,
             _base_color_textures: base_color_textures,
@@ -1729,14 +1882,14 @@ impl DrawStrategy for Deferred {
             device.cmd_set_viewport(command_buffer, 0, &viewports);
         }
 
-        assert_eq!(self.vertex_buffers.len(), self.index_buffers.len());
         log::info!("draw primitives");
-        for primitive_i in 0..self.vertex_buffers.len() {
+        for primitive_i in 0..self.meshlet_buffers.len() {
             let set_indices = primitive_i * NUM_GRAPHICS_DESCRIPTOR_SETS
                 ..(primitive_i + 1) * NUM_GRAPHICS_DESCRIPTOR_SETS;
             let descriptor_sets = set_indices
                 .map(|i| self.graphics_descriptor_sets[image_index as usize].vk_descriptor_set(i))
                 .collect::<Vec<_>>();
+            log::info!("bind descriptor sets");
             unsafe {
                 device.cmd_bind_descriptor_sets(
                     command_buffer,
@@ -1748,33 +1901,10 @@ impl DrawStrategy for Deferred {
                 );
             }
 
+            log::info!("draw meshlet");
             unsafe {
-                device.cmd_bind_vertex_buffers(
-                    command_buffer,
-                    0,
-                    &[self.vertex_buffers[primitive_i].vk_buffer()],
-                    &[0],
-                );
-            }
-
-            unsafe {
-                device.cmd_bind_index_buffer(
-                    command_buffer,
-                    self.index_buffers[primitive_i].vk_buffer(),
-                    0,
-                    Index::get_type(),
-                );
-            }
-
-            unsafe {
-                device.cmd_draw_indexed(
-                    command_buffer,
-                    self.index_buffers[primitive_i].len() as u32,
-                    1,
-                    0,
-                    0,
-                    0,
-                );
+                self.mesh_shader_device
+                    .cmd_draw_mesh_tasks(command_buffer, 1, 1, 1);
             }
         }
 

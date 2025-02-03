@@ -82,7 +82,8 @@ impl Texture {
             let staging_buffer = if let Pixels::U8(pixels) = image.pixels {
                 Buffer::new(
                     pixels.as_ptr() as *const std::ffi::c_void,
-                    std::mem::size_of::<u8>() as u64 * pixels.len() as u64,
+                    std::mem::size_of::<u8>() as u64,
+                    pixels.len() as u64,
                     vk::BufferUsageFlags::TRANSFER_SRC,
                     vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
                     physical_device,
@@ -92,7 +93,8 @@ impl Texture {
             } else if let Pixels::F32(pixels) = image.pixels {
                 Buffer::new(
                     pixels.as_ptr() as *const std::ffi::c_void,
-                    std::mem::size_of::<f32>() as u64 * pixels.len() as u64,
+                    std::mem::size_of::<f32>() as u64,
+                    pixels.len() as u64,
                     vk::BufferUsageFlags::TRANSFER_SRC,
                     vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
                     physical_device,

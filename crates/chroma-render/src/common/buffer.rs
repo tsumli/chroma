@@ -44,19 +44,22 @@ pub struct Buffer {
     device_memory: vk::DeviceMemory,
     memory_property_flags: vk::MemoryPropertyFlags,
     mapped_memory: *mut std::ffi::c_void,
-    size: vk::DeviceSize,
+    type_size: vk::DeviceSize,
+    len: vk::DeviceSize,
 }
 
 impl Buffer {
     pub fn new(
         data: *const std::ffi::c_void,
-        size: vk::DeviceSize,
+        type_size: vk::DeviceSize,
+        len: vk::DeviceSize,
         usage_flags: vk::BufferUsageFlags,
         memory_property_flags: vk::MemoryPropertyFlags,
         physical_device: vk::PhysicalDevice,
         device: ash::Device,
         instance: ash::Instance,
     ) -> Self {
+        let size = type_size * len;
         let create_info = vk::BufferCreateInfo::default()
             .size(size)
             .usage(usage_flags)
@@ -117,30 +120,40 @@ impl Buffer {
             device_memory,
             memory_property_flags,
             mapped_memory,
-            size,
+            type_size,
+            len,
         }
     }
 
     pub fn update_buffer(&self, data: *const std::ffi::c_void) {
+        assert!(self.len == 1);
         if self.mapped_memory.is_null() || data.is_null() {
             log::warn!("Buffer is not mappable or data is null");
             return;
         }
 
         unsafe {
-            std::ptr::copy(data, self.mapped_memory, self.size as usize);
+            std::ptr::copy(data, self.mapped_memory, self.type_size as usize);
         }
 
         if !self
             .memory_property_flags
             .contains(vk::MemoryPropertyFlags::HOST_COHERENT)
         {
-            flush_mapped_memory(&self.device, self.device_memory, self.size);
+            flush_mapped_memory(&self.device, self.device_memory, self.type_size);
         }
     }
 
     pub fn vk_buffer(&self) -> vk::Buffer {
         self.buffer
+    }
+
+    pub fn len(&self) -> vk::DeviceSize {
+        self.len
+    }
+
+    pub fn size(&self) -> vk::DeviceSize {
+        self.type_size * self.len
     }
 }
 
@@ -151,4 +164,52 @@ impl Drop for Buffer {
             self.device.free_memory(self.device_memory, None);
         }
     }
+}
+
+pub fn allocate_device_local_buffer(
+    data: *const std::ffi::c_void,
+    type_size: vk::DeviceSize,
+    len: vk::DeviceSize,
+    usage_flags: vk::BufferUsageFlags,
+    command_pool: vk::CommandPool,
+    queue: vk::Queue,
+    physical_device: vk::PhysicalDevice,
+    device: ash::Device,
+    instance: ash::Instance,
+) -> Buffer {
+    let size = type_size * len;
+    assert!(size > 0);
+
+    let staging_buffer = Buffer::new(
+        data,
+        type_size,
+        len,
+        vk::BufferUsageFlags::TRANSFER_SRC,
+        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        physical_device,
+        device.clone(),
+        instance.clone(),
+    );
+
+    let buffer = Buffer::new(
+        std::ptr::null(),
+        type_size,
+        len,
+        vk::BufferUsageFlags::TRANSFER_DST | usage_flags,
+        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        physical_device,
+        device.clone(),
+        instance.clone(),
+    );
+
+    copy_buffer(
+        staging_buffer.vk_buffer(),
+        buffer.vk_buffer(),
+        size,
+        command_pool,
+        queue,
+        device.clone(),
+    );
+
+    buffer
 }

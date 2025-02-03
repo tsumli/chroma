@@ -38,6 +38,7 @@ impl IndexBuffer {
         let staging_buffer = super::buffer::Buffer::new(
             indices.as_ptr() as *const std::ffi::c_void,
             buffer_size,
+            1,
             vk::BufferUsageFlags::TRANSFER_SRC,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
             physical_device,
@@ -48,6 +49,7 @@ impl IndexBuffer {
         let buffer = super::buffer::Buffer::new(
             std::ptr::null(),
             buffer_size,
+            1,
             vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER,
             vk::MemoryPropertyFlags::DEVICE_LOCAL,
             physical_device,

@@ -1,0 +1,97 @@
+#version 460
+
+#extension GL_EXT_mesh_shader : require
+#extension GL_EXT_shader_8bit_storage: require
+#extension GL_ARB_shading_language_include : require
+#extension GL_EXT_scalar_block_layout : require
+
+#include "frag_input.glsl"
+
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+layout(triangles, max_vertices = 256, max_primitives = 128) out;
+
+struct TransformParams {
+    mat4x4 world;
+    mat4x4 view;
+    mat4x4 proj;
+    mat4x4 view_proj;
+    mat4x4 world_view_proj;
+    mat4x4 proj_to_world;
+};
+
+// meshopt::ffi::meshopt_Meshlet
+struct Meshlet {
+    uint vertex_offset;
+    uint triangle_offset;
+    uint vertex_count;
+    uint triangle_count;
+};
+
+struct VertexInput {
+    vec3 position;
+    vec2 uv;
+    vec3 normal;
+    vec4 tangent;
+    vec4 color;
+};
+
+layout(set = 0, binding = 0) uniform ubo {
+    TransformParams transform;
+};
+layout(set = 1, binding = 1) readonly buffer Meshlets {
+    Meshlet meshlets[];
+};
+layout(set = 1, binding = 2) readonly buffer MeshletVertices {
+    uint meshlet_vertices[];
+};
+layout(set = 1, binding = 3) readonly buffer MeshletTriangles {
+    uint8_t meshlet_triangles[];
+};
+layout(set = 1, binding = 4, scalar) readonly buffer VertexInputBuffer {
+    VertexInput vertex_inputs[];
+};
+
+layout(location = 0) out FragInput frag_inputs[];
+
+void main() {
+    Meshlet meshlet = meshlets[gl_WorkGroupID.x];
+    SetMeshOutputsEXT(meshlet.vertex_count, meshlet.triangle_count);
+
+    for (uint vert_i = gl_LocalInvocationIndex; vert_i < meshlet.vertex_count; vert_i += gl_WorkGroupSize.x) {
+        uint index = meshlet_vertices[meshlet.vertex_offset + vert_i];
+
+        const vec3 position = vertex_inputs[index].position;
+        const vec3 normal = vertex_inputs[index].normal;
+        const vec4 tangent = vertex_inputs[index].tangent;
+        const vec4 color = vertex_inputs[index].color;
+        const vec2 uv = vertex_inputs[index].uv;
+
+        FragInput frag_input;
+
+        // Convert normal
+        frag_input.normal_ws = normalize(mat3x3(transform.world) * normal);
+        // Reconstruct the tangent frame
+        frag_input.tangent_ws = normalize(mat3x3(transform.world) * tangent.xyz);
+        frag_input.bitangent_ws =
+            normalize(cross(frag_input.normal_ws, frag_input.tangent_ws)) * tangent.w;
+
+        // Calculate the clip-space position
+        frag_input.position_cs = transform.world_view_proj * vec4(position, 1.0);
+
+        // Pass through the rest of the data
+        frag_input.texcoord = uv;
+        frag_input.color = color;
+
+        gl_MeshVerticesEXT[vert_i].gl_Position = frag_input.position_cs;
+        frag_inputs[vert_i] = frag_input;
+    }
+
+    for (uint triangle_i = gl_LocalInvocationIndex; triangle_i < meshlet.triangle_count; triangle_i += gl_WorkGroupSize.x) {
+        uint offset = meshlet.triangle_offset + triangle_i * 3;
+        gl_PrimitiveTriangleIndicesEXT[triangle_i] = uvec3(
+                meshlet_triangles[offset],
+                meshlet_triangles[offset + 1],
+                meshlet_triangles[offset + 2]
+            );
+    }
+}

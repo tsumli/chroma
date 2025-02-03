@@ -86,6 +86,7 @@ impl VertexBuffer {
         let staging_buffer = Buffer::new(
             vertices.as_ptr() as *const std::ffi::c_void,
             buffer_size,
+            1,
             vk::BufferUsageFlags::TRANSFER_SRC,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
             physical_device,
@@ -96,6 +97,7 @@ impl VertexBuffer {
         let buffer = Buffer::new(
             std::ptr::null(),
             buffer_size,
+            1,
             vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
             vk::MemoryPropertyFlags::DEVICE_LOCAL,
             physical_device,

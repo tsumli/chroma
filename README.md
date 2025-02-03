@@ -3,14 +3,9 @@
 
 Realtime rendering playground with Vulkan (ash-rs)
 
-## Compile shader
-```bash
-cargo run --manifest-path crates/chroma-shader/Cargo.toml
-```
-
 ## Run rendering!
 ```bash
-cargo run --manifest-path crates/chroma-render/Cargo.toml --example render
+scripts/render.sh
 ```
 
 ## Control

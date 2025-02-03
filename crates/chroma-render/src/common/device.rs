@@ -13,13 +13,14 @@ use std::{
     ffi::CStr,
 };
 
-const DEVICE_EXTENSIONS: [&CStr; 6] = [
+const DEVICE_EXTENSIONS: [&CStr; 7] = [
     ash::khr::swapchain::NAME,
     ash::ext::robustness2::NAME,
     ash::khr::deferred_host_operations::NAME,
     ash::khr::pipeline_library::NAME,
     ash::khr::ray_tracing_pipeline::NAME,
     ash::khr::acceleration_structure::NAME,
+    ash::ext::mesh_shader::NAME,
 ];
 
 pub fn pick_physical_device(
@@ -146,9 +147,28 @@ pub fn create_logical_device(
         queue_create_infos.push(queue_create_info);
     }
 
+    let mut physical_device_maintenance4_features =
+        vk::PhysicalDeviceMaintenance4FeaturesKHR::default().maintenance4(true);
+
+    let mut physical_device_eight_bit_storage_features =
+        vk::PhysicalDevice8BitStorageFeatures::default()
+            .storage_buffer8_bit_access(true)
+            .uniform_and_storage_buffer8_bit_access(true);
+    physical_device_eight_bit_storage_features.p_next =
+        &mut physical_device_maintenance4_features as *mut _ as *mut std::ffi::c_void;
+
+    let mut physical_device_mesh_shader_features =
+        vk::PhysicalDeviceMeshShaderFeaturesEXT::default()
+            .task_shader(true)
+            .mesh_shader(true);
+    physical_device_mesh_shader_features.p_next =
+        &mut physical_device_eight_bit_storage_features as *mut _ as *mut std::ffi::c_void;
+
     // physical_device_timeline_semaphore_features
     let mut physical_device_timeline_semaphore_features =
         vk::PhysicalDeviceTimelineSemaphoreFeatures::default().timeline_semaphore(true);
+    physical_device_timeline_semaphore_features.p_next =
+        &mut physical_device_mesh_shader_features as *mut _ as *mut std::ffi::c_void;
 
     // raytracing_pipeline_features
     let mut raytracing_pipeline_features =

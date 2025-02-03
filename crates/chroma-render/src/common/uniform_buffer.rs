@@ -24,6 +24,7 @@ impl<T> UniformBuffer<T> {
             let buffer = Buffer::new(
                 &data as *const _ as *const std::ffi::c_void,
                 type_size,
+                1,
                 vk::BufferUsageFlags::UNIFORM_BUFFER,
                 vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
                 physical_device,

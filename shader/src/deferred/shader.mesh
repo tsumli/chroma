@@ -6,8 +6,8 @@
 
 #include "frag_input.glsl"
 
-layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
-layout(triangles, max_vertices = 3, max_primitives = 1) out;
+layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+layout(triangles, max_vertices = 256, max_primitives = 128) out;
 
 struct TransformParams {
     mat4x4 world;
@@ -36,16 +36,16 @@ struct VertexInput {
 layout(set = 0, binding = 0) uniform ubo {
     TransformParams transform;
 };
-layout(set = 0, binding = 1) readonly buffer Meshlets {
+layout(set = 1, binding = 1) readonly buffer Meshlets {
     Meshlet meshlets[];
 };
-layout(set = 0, binding = 2) readonly buffer MeshletVertices {
+layout(set = 1, binding = 2) readonly buffer MeshletVertices {
     uint meshlet_vertices[];
 };
-layout(set = 0, binding = 3) readonly buffer MeshletTriangles {
+layout(set = 1, binding = 3) readonly buffer MeshletTriangles {
     uint8_t meshlet_triangles[];
 };
-layout(set = 0, binding = 4) readonly buffer VertexInputBuffer {
+layout(set = 1, binding = 4) readonly buffer VertexInputBuffer {
     VertexInput vertex_inputs[];
 };
 

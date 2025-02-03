@@ -7,13 +7,16 @@ use anyhow::{
     bail,
     Result,
 };
-use ash::vk;
+use ash::{
+    khr::spirv_1_4,
+    vk,
+};
 use std::{
     collections::HashSet,
     ffi::CStr,
 };
 
-const DEVICE_EXTENSIONS: [&CStr; 7] = [
+const DEVICE_EXTENSIONS: [&CStr; 8] = [
     ash::khr::swapchain::NAME,
     ash::ext::robustness2::NAME,
     ash::khr::deferred_host_operations::NAME,
@@ -21,6 +24,7 @@ const DEVICE_EXTENSIONS: [&CStr; 7] = [
     ash::khr::ray_tracing_pipeline::NAME,
     ash::khr::acceleration_structure::NAME,
     ash::ext::mesh_shader::NAME,
+    ash::khr::spirv_1_4::NAME,
 ];
 
 pub fn pick_physical_device(

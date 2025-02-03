@@ -11,7 +11,6 @@ use crate::{
         descriptor_pool,
         device::find_queue_family,
         image_buffer::ImageBuffer,
-        index::Index,
         material::MaterialParams,
         pipeline_layout,
         surface,
@@ -46,6 +45,7 @@ use chroma_scene::{
         ModelTrait as _,
     },
 };
+use core::task;
 use nalgebra_glm::{
     Vec2,
     Vec3,
@@ -101,7 +101,7 @@ pub struct Deferred {
     meshlet_buffers: Vec<common::buffer::Buffer>,
     meshlet_vertices_buffers: Vec<common::buffer::Buffer>,
     meshlet_triangle_buffers: Vec<common::buffer::Buffer>,
-    instance: ash::Instance,
+    mesh_shader_device: ash::ext::mesh_shader::Device,
 }
 
 impl Deferred {
@@ -202,6 +202,11 @@ impl Deferred {
                                 let color =
                                     colors.map_or([1.0, 1.0, 1.0, 1.0], |color| color[vertex_i]);
 
+                                log::info!("size: {}", std::mem::size_of::<Vertex>());
+                                log::info!("size: {}", std::mem::size_of::<Vertex>());
+                                log::info!("size: {}", std::mem::size_of::<Vertex>());
+                                log::info!("size: {}", std::mem::size_of::<Vertex>());
+
                                 vertices.push(Vertex {
                                     position: Vec3::new(position[0], position[1], position[2]),
                                     uv: Vec2::new(uv[0], uv[1]),
@@ -247,8 +252,6 @@ impl Deferred {
                                 std::mem::size_of::<meshopt::ffi::meshopt_Meshlet>() as u64,
                                 meshlets.len() as u64,
                                 vk::BufferUsageFlags::STORAGE_BUFFER,
-                                vk::MemoryPropertyFlags::HOST_VISIBLE
-                                    | vk::MemoryPropertyFlags::HOST_COHERENT,
                                 command_pool.vk_command_pool(),
                                 graphics_compute_queue,
                                 physical_device,
@@ -263,8 +266,6 @@ impl Deferred {
                                 std::mem::size_of::<u32>() as u64,
                                 meshlet_vertices.len() as u64,
                                 vk::BufferUsageFlags::STORAGE_BUFFER,
-                                vk::MemoryPropertyFlags::HOST_VISIBLE
-                                    | vk::MemoryPropertyFlags::HOST_COHERENT,
                                 command_pool.vk_command_pool(),
                                 graphics_compute_queue,
                                 physical_device,
@@ -279,8 +280,6 @@ impl Deferred {
                                 std::mem::size_of::<u8>() as u64,
                                 meshlet_triangles.len() as u64,
                                 vk::BufferUsageFlags::STORAGE_BUFFER,
-                                vk::MemoryPropertyFlags::HOST_VISIBLE
-                                    | vk::MemoryPropertyFlags::HOST_COHERENT,
                                 command_pool.vk_command_pool(),
                                 graphics_compute_queue,
                                 physical_device,
@@ -1259,14 +1258,20 @@ impl Deferred {
         let mut graphics_pipelines = Vec::new();
         for frame_i in 0..MAX_FRAMES_IN_FLIGHT {
             let spv_root = get_shader_spv_root()?;
+            let task_shader_code = read_shader_code(&spv_root.join("deferred/shader.task.spv"))?;
             let mesh_shader_code = read_shader_code(&spv_root.join("deferred/shader.mesh.spv"))?;
             let frag_shader_code = read_shader_code(&spv_root.join("deferred/shader.frag.spv"))?;
+            let task_shader_module = create_shader_module(&ash_device, task_shader_code)?;
             let mesh_shader_module = create_shader_module(&ash_device, mesh_shader_code)?;
             let frag_shader_module = create_shader_module(&ash_device, frag_shader_code)?;
 
             let main_function_name = CString::new("main")?;
 
             let shader_stages = [
+                vk::PipelineShaderStageCreateInfo::default()
+                    .module(task_shader_module)
+                    .stage(vk::ShaderStageFlags::TASK_EXT)
+                    .name(&main_function_name),
                 vk::PipelineShaderStageCreateInfo::default()
                     .module(mesh_shader_module)
                     .stage(vk::ShaderStageFlags::MESH_EXT)
@@ -1746,6 +1751,8 @@ impl Deferred {
             compute_pipelines.push(compute_pipeline);
         }
 
+        let mesh_shader_device = ash::ext::mesh_shader::Device::new(&instance, &ash_device);
+
         Ok(Self {
             vertex_buffers,
             material_ubo,
@@ -1765,7 +1772,7 @@ impl Deferred {
             meshlet_buffers,
             meshlet_triangle_buffers,
             meshlet_vertices_buffers,
-            instance: instance.clone(),
+            mesh_shader_device,
             _transform_ubo: transform_ubo,
             _camera_ubo: camera_ubo,
             _base_color_textures: base_color_textures,
@@ -1781,7 +1788,6 @@ impl DrawStrategy for Deferred {
     fn draw(&self, command_buffer: vk::CommandBuffer, image_index: u32) -> Result<()> {
         log::info!("draw deferred rendering");
         let device = &self.ash_device;
-        let instance = &self.instance;
 
         let clear_values = [
             // color
@@ -1902,8 +1908,8 @@ impl DrawStrategy for Deferred {
 
             log::info!("draw meshlet");
             unsafe {
-                let mesh_shader_device = ash::ext::mesh_shader::Device::new(instance, device);
-                mesh_shader_device.cmd_draw_mesh_tasks(command_buffer, 32, 1, 1);
+                self.mesh_shader_device
+                    .cmd_draw_mesh_tasks(command_buffer, 1, 1, 1);
             }
         }
 

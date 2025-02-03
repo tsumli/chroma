@@ -18,10 +18,12 @@ layout(location = 0) in FragInput frag_input;
 layout(set = 0, binding = 1) uniform sampler2D color_sampler;
 layout(set = 0, binding = 2) uniform sampler2D normal_sampler;
 layout(set = 0, binding = 3) uniform sampler2D metallic_roughness_sampler;
+layout(set = 0, binding = 4) uniform sampler2D emissive_sampler;
 
 layout(location = 0) out vec4 out_color;
 layout(location = 1) out vec4 out_normal;
 layout(location = 2) out vec4 out_metallic_roughness;
+layout(location = 3) out vec4 out_emissive;
 
 void main() {
     const vec2 texcoord = frag_input.texcoord;
@@ -44,4 +46,8 @@ void main() {
     float metallic = metallic_roughness.r * material.metallic_roughness_transmission_factor.r;
     float roughness = metallic_roughness.g * material.metallic_roughness_transmission_factor.g;
     out_metallic_roughness = vec4(metallic, roughness, 0.0, out_color.a);
+
+    // Emissive
+    vec3 emissive = texture(emissive_sampler, texcoord).rgb;
+    out_emissive = vec4(emissive, 1.0);
 }

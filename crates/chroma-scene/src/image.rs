@@ -153,8 +153,18 @@ impl Image {
     }
 }
 
-pub fn create_blank_image(width: u32, height: u32) -> Image {
+pub fn create_white_image(width: u32, height: u32) -> Image {
     let pixels = vec![u8::MAX; (width * height * 4) as usize];
+    Image {
+        pixels: Pixels::U8(pixels),
+        format: gltf::image::Format::R8G8B8A8,
+        width,
+        height,
+    }
+}
+
+pub fn create_black_image(width: u32, height: u32) -> Image {
+    let pixels = vec![u8::MIN; (width * height * 4) as usize];
     Image {
         pixels: Pixels::U8(pixels),
         format: gltf::image::Format::R8G8B8A8,

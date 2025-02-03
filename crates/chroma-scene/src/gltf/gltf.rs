@@ -342,23 +342,33 @@ impl ModelTrait for GltfAdapter {
         textures
     }
 
-    fn read_emissive_images(&self) -> Vec<Image> {
+    fn read_emissive_images(&self) -> Vec<Option<Image>> {
         let mut sources = Vec::new();
         let (nodes, transforms) = read_object_nodes(&self.document);
         for (node, _transform) in nodes.iter().zip(transforms.iter()) {
             let mesh = node.mesh().unwrap();
             for primitive in mesh.primitives() {
                 let material = primitive.material();
-                let emissive_texture = material.emissive_texture().unwrap();
-                let source = emissive_texture.texture().source();
-                sources.push(source.index());
+                let emissive_texture = material.emissive_texture();
+                if emissive_texture.is_none() {
+                    sources.push(None);
+                    continue;
+                } else {
+                    let source = emissive_texture.unwrap().texture().source();
+                    sources.push(Some(source.index()));
+                }
             }
         }
 
         let textures = sources
             .iter()
-            .map(|source| Image::from_gltf_data(self.images[*source].clone()))
-            .collect::<Vec<Image>>();
+            .map(|source| {
+                source.map_or(None, |source| {
+                    let image = Image::from_gltf_data(self.images[source].clone());
+                    Some(image)
+                })
+            })
+            .collect::<Vec<_>>();
 
         textures
     }

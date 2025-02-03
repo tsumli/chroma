@@ -30,7 +30,7 @@ pub trait ModelTrait: Sized {
     fn read_base_colors(&self) -> (Vec<Option<Image>>, Vec<[f32; 4]>);
     fn read_normal_images(&self) -> Vec<Option<Image>>;
     fn read_occlusion_images(&self) -> Vec<Image>;
-    fn read_emissive_images(&self) -> Vec<Image>;
+    fn read_emissive_images(&self) -> Vec<Option<Image>>;
     fn read_metallic_roughnesses(&self) -> (Vec<Option<Image>>, Vec<f32>, Vec<f32>);
     fn read_transmission(&self) -> (Vec<Option<Image>>, Vec<f32>);
     fn path(&self) -> &std::path::PathBuf;

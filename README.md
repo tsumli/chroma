@@ -5,7 +5,11 @@ Realtime rendering playground with Vulkan (ash-rs)
 
 ## Run rendering!
 ```bash
-scripts/render.sh
+bash scripts/render.sh
+```
+or
+```bash
+cargo run --release --example render --manifest-path ./crates/chroma-render/Cargo.toml
 ```
 
 ## Control

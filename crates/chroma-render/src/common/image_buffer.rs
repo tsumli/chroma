@@ -21,8 +21,6 @@ impl ImageBuffer {
         view_type: vk::ImageViewType,
         memory_property_flags: vk::MemoryPropertyFlags,
         aspect_mask: vk::ImageAspectFlags,
-        command_pool: vk::CommandPool,
-        queue: vk::Queue,
         physical_device: vk::PhysicalDevice,
         device: ash::Device,
         instance: ash::Instance,

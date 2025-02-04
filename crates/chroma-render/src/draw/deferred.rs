@@ -161,7 +161,7 @@ impl Deferred {
                         let tangents_vec = gltf_adapter.read_tangents();
                         let colors = gltf_adapter.read_colors();
                         let indices_vec = gltf_adapter.read_indices();
-                        let light_vec = gltf_adapter.read_punctual_lights();
+                        let _light_vec = gltf_adapter.read_punctual_lights();
 
                         assert!(positions_vec.len() > 0, "No positions found in gltf");
                         assert_eq!(positions_vec.len(), uvs_vec.len());
@@ -621,8 +621,6 @@ impl Deferred {
                     vk::ImageViewType::TYPE_2D,
                     vk::MemoryPropertyFlags::DEVICE_LOCAL,
                     vk::ImageAspectFlags::COLOR,
-                    command_pool.vk_command_pool(),
-                    graphics_compute_queue,
                     physical_device,
                     ash_device.clone(),
                     instance.clone(),
@@ -654,8 +652,6 @@ impl Deferred {
                     vk::ImageViewType::TYPE_2D,
                     vk::MemoryPropertyFlags::DEVICE_LOCAL,
                     vk::ImageAspectFlags::DEPTH,
-                    command_pool.vk_command_pool(),
-                    graphics_compute_queue,
                     physical_device,
                     ash_device.clone(),
                     instance.clone(),
@@ -688,8 +684,6 @@ impl Deferred {
                     vk::ImageViewType::TYPE_2D,
                     vk::MemoryPropertyFlags::DEVICE_LOCAL,
                     vk::ImageAspectFlags::COLOR,
-                    command_pool.vk_command_pool(),
-                    graphics_compute_queue,
                     physical_device,
                     ash_device.clone(),
                     instance.clone(),
@@ -722,8 +716,6 @@ impl Deferred {
                     vk::ImageViewType::TYPE_2D,
                     vk::MemoryPropertyFlags::DEVICE_LOCAL,
                     vk::ImageAspectFlags::COLOR,
-                    command_pool.vk_command_pool(),
-                    graphics_compute_queue,
                     physical_device,
                     ash_device.clone(),
                     instance.clone(),
@@ -756,8 +748,6 @@ impl Deferred {
                     vk::ImageViewType::TYPE_2D,
                     vk::MemoryPropertyFlags::DEVICE_LOCAL,
                     vk::ImageAspectFlags::COLOR,
-                    command_pool.vk_command_pool(),
-                    graphics_compute_queue,
                     physical_device,
                     ash_device.clone(),
                     instance.clone(),
@@ -791,8 +781,6 @@ impl Deferred {
                     vk::ImageViewType::TYPE_2D,
                     vk::MemoryPropertyFlags::DEVICE_LOCAL,
                     vk::ImageAspectFlags::COLOR,
-                    command_pool.vk_command_pool(),
-                    graphics_compute_queue,
                     physical_device,
                     ash_device.clone(),
                     instance.clone(),

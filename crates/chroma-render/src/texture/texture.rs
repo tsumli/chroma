@@ -39,8 +39,6 @@ impl Texture {
             view_type,
             vk::MemoryPropertyFlags::DEVICE_LOCAL,
             ASPECT_MASK,
-            command_pool.clone(),
-            queue.clone(),
             physical_device.clone(),
             device.clone(),
             instance.clone(),

@@ -14,11 +14,13 @@ use ash::vk::{
 };
 use std::collections::HashMap;
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum RenderTarget {
     Output,
 }
 
+#[allow(dead_code)]
 pub struct Pathtracing {
     transform_ubo: uniform_buffer::UniformBuffer<TransformParams>,
     material_ubo: Vec<uniform_buffer::UniformBuffer<common::material::MaterialParams>>,

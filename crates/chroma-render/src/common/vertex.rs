@@ -67,10 +67,12 @@ impl Vertex {
     }
 }
 
+#[allow(dead_code)]
 pub struct VertexBuffer {
     buffer: Buffer,
 }
 
+#[allow(dead_code)]
 impl VertexBuffer {
     pub fn new(
         vertices: Vec<Vertex>,

@@ -9,10 +9,6 @@ use std::{
     u8,
 };
 
-fn normalize_pixel(pixel: f32, min: f32, max: f32) -> u8 {
-    ((pixel - min) / (max - min) * 255.0) as u8
-}
-
 #[derive(Debug, Clone)]
 pub enum Pixels {
     U8(Vec<u8>),

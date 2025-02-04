@@ -45,7 +45,6 @@ use chroma_scene::{
         ModelTrait as _,
     },
 };
-use core::task;
 use nalgebra_glm::{
     Vec2,
     Vec3,
@@ -54,7 +53,6 @@ use nalgebra_glm::{
 use std::{
     collections::HashMap,
     ffi::CString,
-    os::unix::process,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -78,29 +76,29 @@ struct SkyboxResources {
 pub struct Deferred {
     _transform_ubo: uniform_buffer::UniformBuffer<TransformParams>,
     _camera_ubo: uniform_buffer::UniformBuffer<CameraParams>,
-    material_ubo: Vec<uniform_buffer::UniformBuffer<common::material::MaterialParams>>,
-    vertex_buffers: Vec<common::buffer::Buffer>,
+    _material_ubo: Vec<uniform_buffer::UniformBuffer<common::material::MaterialParams>>,
+    _vertex_buffers: Vec<common::buffer::Buffer>,
     _base_color_textures: Vec<Texture>,
     _normal_textures: Vec<Texture>,
     _emissive_textures: Vec<Texture>,
     _metallic_roughness_textures: Vec<Texture>,
     graphics_framebuffers: Vec<common::framebuffer::Framebuffer>,
-    command_pool: common::command_pool::CommandPool,
+    _command_pool: common::command_pool::CommandPool,
     ash_device: ash::Device,
     _skybox_resources: Option<SkyboxResources>,
     graphics_pipelines: Vec<common::graphics_pipeline::GraphicsPipeline>,
     graphics_pipeline_layouts: Vec<pipeline_layout::PipelineLayout>,
-    graphics_descriptor_pool: descriptor_pool::DescriptorPool,
+    _graphics_descriptor_pool: descriptor_pool::DescriptorPool,
     graphics_descriptor_sets: Vec<common::descriptor_set::DescriptorSet>,
     graphics_render_pass: common::render_pass::RenderPass,
-    compute_descriptor_pool: descriptor_pool::DescriptorPool,
+    _compute_descriptor_pool: descriptor_pool::DescriptorPool,
     compute_descriptor_sets: Vec<common::descriptor_set::DescriptorSet>,
     compute_pipelines: Vec<common::compute_pipeline::ComputePipeline>,
     compute_pipeline_layouts: Vec<pipeline_layout::PipelineLayout>,
     graphics_render_targets: HashMap<GraphicsRenderTarget, ImageBuffer>,
     meshlet_buffers: Vec<common::buffer::Buffer>,
-    meshlet_vertices_buffers: Vec<common::buffer::Buffer>,
-    meshlet_triangle_buffers: Vec<common::buffer::Buffer>,
+    _meshlet_vertices_buffers: Vec<common::buffer::Buffer>,
+    _meshlet_triangle_buffers: Vec<common::buffer::Buffer>,
     mesh_shader_device: ash::ext::mesh_shader::Device,
 }
 
@@ -163,7 +161,7 @@ impl Deferred {
                         let tangents_vec = gltf_adapter.read_tangents();
                         let colors = gltf_adapter.read_colors();
                         let indices_vec = gltf_adapter.read_indices();
-                        let light_vec = gltf_adapter.read_punctual_lights();
+                        let _light_vec = gltf_adapter.read_punctual_lights();
 
                         assert!(positions_vec.len() > 0, "No positions found in gltf");
                         assert_eq!(positions_vec.len(), uvs_vec.len());
@@ -623,8 +621,6 @@ impl Deferred {
                     vk::ImageViewType::TYPE_2D,
                     vk::MemoryPropertyFlags::DEVICE_LOCAL,
                     vk::ImageAspectFlags::COLOR,
-                    command_pool.vk_command_pool(),
-                    graphics_compute_queue,
                     physical_device,
                     ash_device.clone(),
                     instance.clone(),
@@ -656,8 +652,6 @@ impl Deferred {
                     vk::ImageViewType::TYPE_2D,
                     vk::MemoryPropertyFlags::DEVICE_LOCAL,
                     vk::ImageAspectFlags::DEPTH,
-                    command_pool.vk_command_pool(),
-                    graphics_compute_queue,
                     physical_device,
                     ash_device.clone(),
                     instance.clone(),
@@ -690,8 +684,6 @@ impl Deferred {
                     vk::ImageViewType::TYPE_2D,
                     vk::MemoryPropertyFlags::DEVICE_LOCAL,
                     vk::ImageAspectFlags::COLOR,
-                    command_pool.vk_command_pool(),
-                    graphics_compute_queue,
                     physical_device,
                     ash_device.clone(),
                     instance.clone(),
@@ -724,8 +716,6 @@ impl Deferred {
                     vk::ImageViewType::TYPE_2D,
                     vk::MemoryPropertyFlags::DEVICE_LOCAL,
                     vk::ImageAspectFlags::COLOR,
-                    command_pool.vk_command_pool(),
-                    graphics_compute_queue,
                     physical_device,
                     ash_device.clone(),
                     instance.clone(),
@@ -758,8 +748,6 @@ impl Deferred {
                     vk::ImageViewType::TYPE_2D,
                     vk::MemoryPropertyFlags::DEVICE_LOCAL,
                     vk::ImageAspectFlags::COLOR,
-                    command_pool.vk_command_pool(),
-                    graphics_compute_queue,
                     physical_device,
                     ash_device.clone(),
                     instance.clone(),
@@ -793,8 +781,6 @@ impl Deferred {
                     vk::ImageViewType::TYPE_2D,
                     vk::MemoryPropertyFlags::DEVICE_LOCAL,
                     vk::ImageAspectFlags::COLOR,
-                    command_pool.vk_command_pool(),
-                    graphics_compute_queue,
                     physical_device,
                     ash_device.clone(),
                     instance.clone(),
@@ -1749,24 +1735,24 @@ impl Deferred {
         let mesh_shader_device = ash::ext::mesh_shader::Device::new(&instance, &ash_device);
 
         Ok(Self {
-            vertex_buffers,
-            material_ubo,
+            _vertex_buffers: vertex_buffers,
+            _material_ubo: material_ubo,
             ash_device,
             graphics_framebuffers,
-            command_pool,
+            _command_pool: command_pool,
             graphics_render_pass,
             graphics_pipelines,
             graphics_pipeline_layouts,
-            graphics_descriptor_pool,
+            _graphics_descriptor_pool: graphics_descriptor_pool,
             graphics_descriptor_sets,
-            compute_descriptor_pool,
+            _compute_descriptor_pool: compute_descriptor_pool,
             compute_descriptor_sets,
             compute_pipelines,
             compute_pipeline_layouts,
             graphics_render_targets,
             meshlet_buffers,
-            meshlet_triangle_buffers,
-            meshlet_vertices_buffers,
+            _meshlet_triangle_buffers: meshlet_triangle_buffers,
+            _meshlet_vertices_buffers: meshlet_vertices_buffers,
             mesh_shader_device,
             _transform_ubo: transform_ubo,
             _camera_ubo: camera_ubo,

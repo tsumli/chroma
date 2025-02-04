@@ -18,11 +18,13 @@ impl From<Index> for usize {
     }
 }
 
+#[allow(dead_code)]
 pub struct IndexBuffer {
     buffer: super::buffer::Buffer,
     len: usize,
 }
 
+#[allow(dead_code)]
 impl IndexBuffer {
     pub fn new(
         indices: Vec<Index>,

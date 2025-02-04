@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 pub fn div_up<
     T: std::ops::Add<Output = T>
         + std::ops::Sub<Output = T>

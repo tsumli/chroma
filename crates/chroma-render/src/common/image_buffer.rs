@@ -1,11 +1,4 @@
-use super::{
-    command_buffer::{
-        begin_single_time_command,
-        end_single_time_command,
-    },
-    memory::find_memory_type,
-};
-use crate::texture::mipmap::generate_mipmap;
+use super::memory::find_memory_type;
 use anyhow::Result;
 use ash::vk::{
     self,
@@ -28,8 +21,6 @@ impl ImageBuffer {
         view_type: vk::ImageViewType,
         memory_property_flags: vk::MemoryPropertyFlags,
         aspect_mask: vk::ImageAspectFlags,
-        command_pool: vk::CommandPool,
-        queue: vk::Queue,
         physical_device: vk::PhysicalDevice,
         device: ash::Device,
         instance: ash::Instance,

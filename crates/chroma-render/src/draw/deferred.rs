@@ -16,7 +16,10 @@ use crate::{
         surface,
         swapchain::Swapchain,
         uniform_buffer,
-        vertex::Vertex,
+        vertex::{
+            self,
+            Vertex,
+        },
     },
     shader::shader::{
         create_shader_module,
@@ -32,10 +35,13 @@ use anyhow::{
     Context,
     Result,
 };
-use ash::vk::{
-    self,
-    ImageSubresourceRange,
-    PipelineStageFlags2,
+use ash::{
+    khr::get_physical_device_properties2,
+    vk::{
+        self,
+        ImageSubresourceRange,
+        PipelineStageFlags2,
+    },
 };
 use chroma_base::path::get_shader_spv_root;
 use chroma_scene::{
@@ -73,6 +79,33 @@ struct SkyboxResources {
     pub skybox_texture: Texture,
 }
 
+pub struct AdditionalFunctions {
+    pub buffer_device_address: ash::khr::buffer_device_address::Device,
+    pub acceleration_structure: ash::khr::acceleration_structure::Device,
+    pub raytracing_pipeline: ash::khr::ray_tracing_pipeline::Device,
+    pub mesh_shader: ash::ext::mesh_shader::Device,
+    pub get_physical_device_properties2: ash::khr::get_physical_device_properties2::Instance,
+}
+
+impl AdditionalFunctions {
+    pub fn new(entry: &ash::Entry, instance: &ash::Instance, device: &ash::Device) -> Self {
+        let buffer_device_address = ash::khr::buffer_device_address::Device::new(instance, device);
+        let acceleration_structure =
+            ash::khr::acceleration_structure::Device::new(instance, device);
+        let raytracing_pipeline = ash::khr::ray_tracing_pipeline::Device::new(instance, device);
+        let mesh_shader = ash::ext::mesh_shader::Device::new(instance, device);
+        let get_physical_device_properties2 =
+            ash::khr::get_physical_device_properties2::Instance::new(entry, instance);
+        Self {
+            buffer_device_address,
+            acceleration_structure,
+            raytracing_pipeline,
+            mesh_shader,
+            get_physical_device_properties2,
+        }
+    }
+}
+
 pub struct Deferred {
     _transform_ubo: uniform_buffer::UniformBuffer<TransformParams>,
     _camera_ubo: uniform_buffer::UniformBuffer<CameraParams>,
@@ -99,7 +132,7 @@ pub struct Deferred {
     meshlet_buffers: Vec<common::buffer::Buffer>,
     _meshlet_vertices_buffers: Vec<common::buffer::Buffer>,
     _meshlet_triangle_buffers: Vec<common::buffer::Buffer>,
-    mesh_shader_device: ash::ext::mesh_shader::Device,
+    additional_functions: AdditionalFunctions,
 }
 
 impl Deferred {
@@ -114,6 +147,9 @@ impl Deferred {
         instance: ash::Instance,
         entry: ash::Entry,
     ) -> Result<Self> {
+        log::info!("setup additional functions");
+        let additional_functions = AdditionalFunctions::new(&entry, &instance, &ash_device);
+
         log::info!("creating graphics queues");
         let family_indices = find_queue_family(&instance, physical_device, surface)?;
         let graphics_compute_queue = unsafe {
@@ -1732,7 +1768,34 @@ impl Deferred {
             compute_pipelines.push(compute_pipeline);
         }
 
-        let mesh_shader_device = ash::ext::mesh_shader::Device::new(&instance, &ash_device);
+        // prepare raytracing
+        log::info!("creating raytracing resources");
+        {
+            log::info!("creating raytracing properties");
+            let mut raytracing_pipeline_properties =
+                vk::PhysicalDeviceRayTracingPipelinePropertiesKHR::default();
+            let mut properties = vk::PhysicalDeviceProperties2::default()
+                .push_next(&mut raytracing_pipeline_properties);
+
+            let raytracing_properties = unsafe {
+                additional_functions
+                    .get_physical_device_properties2
+                    .get_physical_device_properties2(physical_device, &mut properties)
+            };
+
+            log::info!("creating raytracing acceleration structures");
+            let mut acceleration_structure_features =
+                vk::PhysicalDeviceAccelerationStructureFeaturesKHR::default();
+            let mut features = vk::PhysicalDeviceFeatures2::default()
+                .push_next(&mut acceleration_structure_features);
+            let acceleration_structure_properties = unsafe {
+                additional_functions
+                    .get_physical_device_properties2
+                    .get_physical_device_features2(physical_device, &mut features)
+            };
+
+            log::info!("creating blas");
+        }
 
         Ok(Self {
             _vertex_buffers: vertex_buffers,
@@ -1753,7 +1816,6 @@ impl Deferred {
             meshlet_buffers,
             _meshlet_triangle_buffers: meshlet_triangle_buffers,
             _meshlet_vertices_buffers: meshlet_vertices_buffers,
-            mesh_shader_device,
             _transform_ubo: transform_ubo,
             _camera_ubo: camera_ubo,
             _base_color_textures: base_color_textures,
@@ -1761,6 +1823,7 @@ impl Deferred {
             _metallic_roughness_textures: metallic_roughness_textures,
             _emissive_textures: emissive_textures,
             _skybox_resources: skybox_resources,
+            additional_functions,
         })
     }
 }
@@ -1889,7 +1952,8 @@ impl DrawStrategy for Deferred {
 
             log::info!("draw meshlet");
             unsafe {
-                self.mesh_shader_device
+                self.additional_functions
+                    .mesh_shader
                     .cmd_draw_mesh_tasks(command_buffer, 1, 1, 1);
             }
         }

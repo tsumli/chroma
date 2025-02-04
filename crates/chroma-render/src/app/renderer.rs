@@ -1,10 +1,7 @@
 use crate::{
     common::{
         self,
-        camera::{
-            self,
-            TransformParams,
-        },
+        camera::TransformParams,
         command_buffer::create_command_buffers,
         consts::MAX_FRAMES_IN_FLIGHT,
         device::{
@@ -38,7 +35,6 @@ use ash::vk::{
     Extent3D,
     ImageCreateInfo,
     ImageSubresourceRange,
-    MemoryPropertyFlags,
     PipelineStageFlags2,
 };
 use imgui::{

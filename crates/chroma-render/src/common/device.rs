@@ -7,10 +7,7 @@ use anyhow::{
     bail,
     Result,
 };
-use ash::{
-    khr::spirv_1_4,
-    vk,
-};
+use ash::vk;
 use std::{
     collections::HashSet,
     ffi::CStr,

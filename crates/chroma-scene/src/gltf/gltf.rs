@@ -6,7 +6,6 @@ use crate::{
         ModelDescriptor,
         ModelTrait,
     },
-    transform,
 };
 use anyhow::Result;
 use chroma_base::path::get_project_root;

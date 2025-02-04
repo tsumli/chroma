@@ -1,11 +1,4 @@
-use super::{
-    command_buffer::{
-        begin_single_time_command,
-        end_single_time_command,
-    },
-    memory::find_memory_type,
-};
-use crate::texture::mipmap::generate_mipmap;
+use super::memory::find_memory_type;
 use anyhow::Result;
 use ash::vk::{
     self,

@@ -19,17 +19,17 @@ use winit::{
 };
 
 #[derive(Default)]
-pub struct App {
+pub struct App<'a> {
     window: Option<Window>,
     window_size: PhysicalSize<u32>,
-    renderer: Option<super::renderer::Renderer>,
+    renderer: Option<super::renderer::Renderer<'a>>,
     imgui_platform: Option<WinitPlatform>,
     imgui_context: Option<imgui::Context>,
     control: Control,
     scene: chroma_scene::scene::Scene,
 }
 
-impl App {
+impl App<'_> {
     pub fn set_scene(&mut self, scene: chroma_scene::scene::Scene) {
         self.scene = scene
     }
@@ -39,7 +39,7 @@ impl App {
     }
 }
 
-impl ApplicationHandler for App {
+impl ApplicationHandler for App<'_> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         // setup window
         let window = create_window(event_loop, self.window_size).expect("failed to create window");

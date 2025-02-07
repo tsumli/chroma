@@ -1,8 +1,14 @@
-use super::raytracing::GeometryNode;
+use super::raytracing::{
+    BindingTables,
+    GeometryNode,
+};
 use crate::{
     common::{
         self,
-        buffer::allocate_device_local_buffer,
+        buffer::{
+            allocate_device_local_buffer,
+            Buffer,
+        },
         camera::{
             CameraParams,
             TransformParams,
@@ -32,7 +38,10 @@ use crate::{
         texture::Texture,
         texture_sampler::create_texture_sampler,
     },
-    utils::tangent::compute_tangent,
+    utils::{
+        math,
+        tangent::compute_tangent,
+    },
 };
 use anyhow::{
     ensure,
@@ -43,6 +52,10 @@ use ash::vk::{
     self,
     ImageSubresourceRange,
     Packed24_8,
+    PhysicalDeviceAccelerationStructureFeaturesKHR,
+    PhysicalDeviceAccelerationStructurePropertiesKHR,
+    PhysicalDeviceRayTracingPipelineFeaturesKHR,
+    PhysicalDeviceRayTracingPipelinePropertiesKHR,
     PipelineStageFlags2,
 };
 use chroma_base::path::get_shader_spv_root;
@@ -116,7 +129,7 @@ impl AdditionalFunctions {
     }
 }
 
-pub struct Deferred {
+pub struct Deferred<'a> {
     _transform_ubo: uniform_buffer::UniformBuffer<TransformParams>,
     _camera_ubo: uniform_buffer::UniformBuffer<CameraParams>,
     _material_ubo: Vec<uniform_buffer::UniformBuffer<common::material::MaterialParams>>,
@@ -152,13 +165,16 @@ pub struct Deferred {
     _top_level_acceleration_structure: Option<common::buffer::Buffer>,
     _top_level_acceleration_structure_handle: Option<vk::AccelerationStructureKHR>,
     _shadow_descriptor_pool: descriptor_pool::DescriptorPool,
-    _shadow_descriptor_sets: Vec<common::descriptor_set::DescriptorSet>,
-    _shadow_pipelines: Vec<common::raytracing_pipeline::RaytracingPipeline>,
-    _shadow_pipeline_layouts: Vec<pipeline_layout::PipelineLayout>,
+    shadow_descriptor_sets: Vec<common::descriptor_set::DescriptorSet>,
+    shadow_pipelines: Vec<common::raytracing_pipeline::RaytracingPipeline>,
+    shadow_pipeline_layouts: Vec<pipeline_layout::PipelineLayout>,
     shadow_render_targets: HashMap<ShadowRenderTarget, ImageBuffer>,
+    raytracing_pipeline_props: PhysicalDeviceRayTracingPipelinePropertiesKHR<'a>,
+    acceleration_structure_props: PhysicalDeviceAccelerationStructureFeaturesKHR<'a>,
+    shadow_binding_table: BindingTables,
 }
 
-impl Deferred {
+impl Deferred<'_> {
     pub fn new(
         transform_ubo: uniform_buffer::UniformBuffer<TransformParams>,
         camera_ubo: uniform_buffer::UniformBuffer<CameraParams>,
@@ -1267,6 +1283,43 @@ impl Deferred {
             render_targets
         };
 
+        let shadow_render_targets = {
+            let mut render_targets = HashMap::new();
+            // output
+            render_targets.insert(
+                ShadowRenderTarget::Output,
+                ImageBuffer::new(
+                    &vk::ImageCreateInfo::default()
+                        .image_type(vk::ImageType::TYPE_2D)
+                        .format(swapchain.vk_swapchain_format())
+                        .extent(
+                            vk::Extent3D::default()
+                                .width(swapchain.vk_swapchain_extent().width)
+                                .height(swapchain.vk_swapchain_extent().height)
+                                .depth(1),
+                        )
+                        .initial_layout(vk::ImageLayout::UNDEFINED)
+                        .usage(
+                            vk::ImageUsageFlags::COLOR_ATTACHMENT
+                                | vk::ImageUsageFlags::TRANSFER_SRC
+                                | vk::ImageUsageFlags::STORAGE,
+                        )
+                        .sharing_mode(vk::SharingMode::EXCLUSIVE)
+                        .array_layers(1)
+                        .mip_levels(1)
+                        .tiling(vk::ImageTiling::OPTIMAL)
+                        .samples(vk::SampleCountFlags::TYPE_1),
+                    vk::ImageViewType::TYPE_2D,
+                    vk::MemoryPropertyFlags::DEVICE_LOCAL,
+                    vk::ImageAspectFlags::COLOR,
+                    physical_device,
+                    ash_device.clone(),
+                    instance.clone(),
+                )?,
+            );
+            render_targets
+        };
+
         log::info!("creating graphics descriptor pool");
         let graphics_descriptor_pool = descriptor_pool::DescriptorPool::new(
             vk::DescriptorPoolCreateInfo::default()
@@ -2336,8 +2389,9 @@ impl Deferred {
             let mut descriptor_writes = Vec::new();
 
             // TLAS
+            let tlas_handles = [top_level_acceleration_structure_handle.unwrap()];
             let mut tlas_info = vk::WriteDescriptorSetAccelerationStructureKHR::default()
-                .acceleration_structures(&[top_level_acceleration_structure_handle.unwrap()]);
+                .acceleration_structures(&tlas_handles);
             descriptor_writes.push(
                 vk::WriteDescriptorSet::default()
                     .dst_set(shadow_descriptor_sets[frame_i].vk_descriptor_set(0))
@@ -2414,7 +2468,7 @@ impl Deferred {
             let geometry_node_buffer_info = [vk::DescriptorBufferInfo::default()
                 .buffer(geometry_node_buffer.vk_buffer())
                 .offset(0)
-                .range(geometry_node_buffer.get_type_size())];
+                .range(geometry_node_buffer.type_size())];
             descriptor_writes.push(
                 vk::WriteDescriptorSet::default()
                     .dst_set(shadow_descriptor_sets[frame_i].vk_descriptor_set(2))
@@ -2430,7 +2484,7 @@ impl Deferred {
         }
 
         log::info!("creating raytracing pipeline layout");
-        let mut raytracing_pipeline_layouts = Vec::new();
+        let mut shadow_pipeline_layouts = Vec::new();
         for _ in 0..MAX_FRAMES_IN_FLIGHT {
             let layouts = shadow_descriptor_set_layouts
                 .iter()
@@ -2443,56 +2497,68 @@ impl Deferred {
                 pipeline_layout_create_info,
                 ash_device.clone(),
             )?;
-            raytracing_pipeline_layouts.push(pipeline_layout);
+            shadow_pipeline_layouts.push(pipeline_layout);
         }
 
         log::info!("creating raytracing pipeline");
         let mut shadow_pipelines = Vec::new();
         for frame_i in 0..MAX_FRAMES_IN_FLIGHT {
             let spv_root = get_shader_spv_root()?;
-            let raygen_shader_code = read_shader_code(&spv_root.join("deferred/shader.rgen.spv"))?;
-            let miss_shader_code = read_shader_code(&spv_root.join("deferred/shader.rmiss.spv"))?;
+            let raygen_shader_code = read_shader_code(&spv_root.join("deferred/shadow.rgen.spv"))?;
+            let miss_shader_code = read_shader_code(&spv_root.join("deferred/shadow.rmiss.spv"))?;
             let closest_hit_shader_code =
-                read_shader_code(&spv_root.join("deferred/shader.rchit.spv"))?;
+                read_shader_code(&spv_root.join("deferred/shadow.rchit.spv"))?;
             let raygen_shader_module = create_shader_module(&ash_device, raygen_shader_code)?;
             let miss_shader_module = create_shader_module(&ash_device, miss_shader_code)?;
             let closest_hit_shader_module =
                 create_shader_module(&ash_device, closest_hit_shader_code)?;
             let main_function_name = CString::new("main")?;
 
-            let raygen_shader_stage = vk::PipelineShaderStageCreateInfo::default()
+            log::info!("setting up raytracing shader groups");
+            let specialization_map_entries = [vk::SpecializationMapEntry::default()
+                .constant_id(0)
+                .offset(0)
+                .size(std::mem::size_of::<u32>())];
+            let max_recursion = 2;
+            let specialization_info = vk::SpecializationInfo::default()
+                .map_entries(&specialization_map_entries)
+                .data(bytemuck::bytes_of(&max_recursion));
+
+            let raygen_shader_stage_create_info = vk::PipelineShaderStageCreateInfo::default()
                 .module(raygen_shader_module)
                 .stage(vk::ShaderStageFlags::RAYGEN_KHR)
-                .name(&main_function_name);
-            let miss_shader_stage = vk::PipelineShaderStageCreateInfo::default()
+                .name(&main_function_name)
+                .specialization_info(&specialization_info);
+            let miss_shader_stage_create_info = vk::PipelineShaderStageCreateInfo::default()
                 .module(miss_shader_module)
                 .stage(vk::ShaderStageFlags::MISS_KHR)
                 .name(&main_function_name);
-            let closest_hit_shader_stage = vk::PipelineShaderStageCreateInfo::default()
+            let closest_hit_shader_stage_create_info = vk::PipelineShaderStageCreateInfo::default()
                 .module(closest_hit_shader_module)
                 .stage(vk::ShaderStageFlags::CLOSEST_HIT_KHR)
                 .name(&main_function_name);
 
-            let shader_stages = [
-                raygen_shader_stage,
-                miss_shader_stage,
-                closest_hit_shader_stage,
+            let shader_stages = vec![
+                raygen_shader_stage_create_info,
+                miss_shader_stage_create_info,
+                closest_hit_shader_stage_create_info,
             ];
 
+            let create_infos = [
+                vk::RayTracingShaderGroupCreateInfoKHR::default()
+                    .ty(vk::RayTracingShaderGroupTypeKHR::GENERAL)
+                    .general_shader(0),
+                vk::RayTracingShaderGroupCreateInfoKHR::default()
+                    .ty(vk::RayTracingShaderGroupTypeKHR::GENERAL)
+                    .general_shader(1),
+                vk::RayTracingShaderGroupCreateInfoKHR::default()
+                    .ty(vk::RayTracingShaderGroupTypeKHR::TRIANGLES_HIT_GROUP)
+                    .closest_hit_shader(2),
+            ];
             let raytracing_pipeline_create_info = vk::RayTracingPipelineCreateInfoKHR::default()
                 .stages(&shader_stages)
-                .groups(&[
-                    vk::RayTracingShaderGroupCreateInfoKHR::default()
-                        .ty(vk::RayTracingShaderGroupTypeKHR::GENERAL)
-                        .general_shader(0),
-                    vk::RayTracingShaderGroupCreateInfoKHR::default()
-                        .ty(vk::RayTracingShaderGroupTypeKHR::GENERAL)
-                        .general_shader(1),
-                    vk::RayTracingShaderGroupCreateInfoKHR::default()
-                        .ty(vk::RayTracingShaderGroupTypeKHR::TRIANGLES_HIT_GROUP)
-                        .closest_hit_shader(2),
-                ])
-                .layout(raytracing_pipeline_layouts[frame_i].vk_pipeline_layout())
+                .groups(&create_infos)
+                .layout(shadow_pipeline_layouts[frame_i].vk_pipeline_layout())
                 .max_pipeline_ray_recursion_depth(1);
 
             let raytracing_pipeline = common::raytracing_pipeline::RaytracingPipeline::new(
@@ -2507,6 +2573,104 @@ impl Deferred {
             }
             shadow_pipelines.push(raytracing_pipeline);
         }
+
+        log::info!("get raytracing props");
+        let raytracing_pipeline_props = {
+            let mut raytracing_pipeline_props =
+                PhysicalDeviceRayTracingPipelinePropertiesKHR::default();
+            let mut physical_device_props =
+                vk::PhysicalDeviceProperties2::default().push_next(&mut raytracing_pipeline_props);
+            unsafe {
+                additional_functions
+                    .get_physical_device_properties2
+                    .get_physical_device_properties2(physical_device, &mut physical_device_props);
+            }
+            raytracing_pipeline_props
+        };
+
+        log::info!("get acceleration structure props");
+        let acceleration_structure_props = {
+            let mut acceleration_structure_props =
+                PhysicalDeviceAccelerationStructureFeaturesKHR::default();
+            let mut physical_device_features =
+                vk::PhysicalDeviceFeatures2::default().push_next(&mut acceleration_structure_props);
+            unsafe {
+                additional_functions
+                    .get_physical_device_properties2
+                    .get_physical_device_features2(physical_device, &mut physical_device_features);
+            }
+            acceleration_structure_props
+        };
+
+        log::info!("create shader binding table");
+        let handle_size = raytracing_pipeline_props.shader_group_handle_size;
+        let handle_size_aligned = math::align_up(
+            handle_size,
+            raytracing_pipeline_props.shader_group_base_alignment,
+        );
+        let group_count = 3; // rgen + miss + chit
+        let shader_binding_table_size = handle_size_aligned * group_count;
+
+        let shader_handle_storage = unsafe {
+            additional_functions
+                .raytracing_pipeline
+                .get_ray_tracing_shader_group_handles(
+                    shadow_pipelines[0].pipeline(),
+                    0,
+                    group_count,
+                    shader_binding_table_size as usize,
+                )?
+        };
+
+        let buffer_usage_flags = vk::BufferUsageFlags::SHADER_BINDING_TABLE_KHR
+            | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS;
+        let memory_property_flags =
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT;
+
+        let raygen_shader_binding_table = Buffer::new(
+            shader_handle_storage.as_ptr() as *const _,
+            shader_binding_table_size as u64,
+            1,
+            buffer_usage_flags,
+            memory_property_flags,
+            physical_device,
+            ash_device.clone(),
+            instance.clone(),
+        );
+
+        let miss_shader_binding_table = Buffer::new(
+            unsafe {
+                (shader_handle_storage.as_ptr() as *const u8).add(handle_size_aligned as usize)
+                    as *const _
+            },
+            shader_binding_table_size as u64,
+            1,
+            buffer_usage_flags,
+            memory_property_flags,
+            physical_device,
+            ash_device.clone(),
+            instance.clone(),
+        );
+
+        let closest_hit_shader_binding_table = Buffer::new(
+            unsafe {
+                (shader_handle_storage.as_ptr() as *const u8).add(handle_size_aligned as usize * 2)
+                    as *const _
+            },
+            shader_binding_table_size as u64,
+            1,
+            buffer_usage_flags,
+            memory_property_flags,
+            physical_device,
+            ash_device.clone(),
+            instance.clone(),
+        );
+
+        let shadow_binding_table = BindingTables {
+            raygen: raygen_shader_binding_table,
+            miss: miss_shader_binding_table,
+            hit: closest_hit_shader_binding_table,
+        };
 
         Ok(Self {
             _vertex_buffers: vertex_buffers,
@@ -2546,17 +2710,93 @@ impl Deferred {
             _bottom_level_acceleration_structure_handles:
                 bottom_level_acceleration_structure_handles,
             _shadow_descriptor_pool: shadow_descriptor_pool,
-            _shadow_descriptor_sets: shadow_descriptor_sets,
-            _shadow_pipeline_layouts: raytracing_pipeline_layouts,
-            _shadow_pipelines: shadow_pipelines,
+            shadow_descriptor_sets,
+            shadow_pipeline_layouts,
+            shadow_pipelines,
+            _top_level_acceleration_structure_handle: top_level_acceleration_structure_handle,
+            shadow_render_targets,
+            raytracing_pipeline_props,
+            acceleration_structure_props,
+            shadow_binding_table,
         })
     }
 }
 
-impl DrawStrategy for Deferred {
+impl DrawStrategy for Deferred<'_> {
     fn draw(&self, command_buffer: vk::CommandBuffer, image_index: u32) -> Result<()> {
-        log::info!("draw deferred rendering");
         let device = &self.ash_device;
+
+        log::info!("Draw shadow pass");
+        let handle_size = self.raytracing_pipeline_props.shader_group_handle_size;
+        let handle_size_aligned = math::align_up(
+            handle_size,
+            self.raytracing_pipeline_props.shader_group_base_alignment,
+        );
+
+        log::info!("bind pipeline");
+        unsafe {
+            device.cmd_bind_pipeline(
+                command_buffer,
+                vk::PipelineBindPoint::RAY_TRACING_KHR,
+                self.shadow_pipelines[image_index as usize].pipeline(),
+            );
+        }
+
+        log::info!("bind descriptor sets");
+        let shadow_descriptor_sets = [
+            self.shadow_descriptor_sets[image_index as usize].vk_descriptor_set(0),
+            self.shadow_descriptor_sets[image_index as usize].vk_descriptor_set(1),
+            self.shadow_descriptor_sets[image_index as usize].vk_descriptor_set(2),
+        ];
+        unsafe {
+            device.cmd_bind_descriptor_sets(
+                command_buffer,
+                vk::PipelineBindPoint::RAY_TRACING_KHR,
+                self.shadow_pipeline_layouts[image_index as usize].vk_pipeline_layout(),
+                0,
+                &shadow_descriptor_sets,
+                &[],
+            );
+        }
+
+        log::info!("trace rays");
+        let raygen_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR::default()
+            .device_address(self.shadow_binding_table.raygen.device_address())
+            .size(handle_size_aligned as u64)
+            .stride(handle_size_aligned as u64);
+
+        let miss_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR::default()
+            .device_address(self.shadow_binding_table.miss.device_address())
+            .size(handle_size_aligned as u64)
+            .stride(handle_size_aligned as u64);
+
+        let hit_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR::default()
+            .device_address(self.shadow_binding_table.hit.device_address())
+            .size(handle_size_aligned as u64)
+            .stride(handle_size_aligned as u64);
+
+        let callable_shader_binding_table = vk::StridedDeviceAddressRegionKHR::default();
+        unsafe {
+            let extent = self
+                .shadow_render_targets
+                .get(&ShadowRenderTarget::Output)
+                .unwrap()
+                .extent();
+            self.additional_functions
+                .raytracing_pipeline
+                .cmd_trace_rays(
+                    command_buffer,
+                    &raygen_shader_binding_table_entry,
+                    &miss_shader_binding_table_entry,
+                    &hit_shader_binding_table_entry,
+                    &callable_shader_binding_table,
+                    extent.width,
+                    extent.height,
+                    1,
+                );
+        }
+
+        log::info!("draw deferred rendering");
 
         let clear_values = [
             // color
@@ -2663,7 +2903,6 @@ impl DrawStrategy for Deferred {
             let descriptor_sets = set_indices
                 .map(|i| self.graphics_descriptor_sets[image_index as usize].vk_descriptor_set(i))
                 .collect::<Vec<_>>();
-            log::info!("bind descriptor sets");
             unsafe {
                 device.cmd_bind_descriptor_sets(
                     command_buffer,
@@ -2675,7 +2914,6 @@ impl DrawStrategy for Deferred {
                 );
             }
 
-            log::info!("draw meshlet");
             unsafe {
                 self.additional_functions
                     .mesh_shader

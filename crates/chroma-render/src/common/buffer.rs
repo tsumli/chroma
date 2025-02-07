@@ -68,7 +68,7 @@ impl Buffer {
 
         let buffer = unsafe { device.create_buffer(&create_info, None).unwrap() };
 
-        let mut mem_info = vk::BufferMemoryRequirementsInfo2::default().buffer(buffer);
+        let mem_info = vk::BufferMemoryRequirementsInfo2::default().buffer(buffer);
         let mut mem_requirements = vk::MemoryRequirements2::default();
 
         unsafe { device.get_buffer_memory_requirements2(&mem_info, &mut mem_requirements) };
@@ -165,6 +165,10 @@ impl Buffer {
 
     pub fn len(&self) -> vk::DeviceSize {
         self.len
+    }
+
+    pub fn type_size(&self) -> vk::DeviceSize {
+        self.type_size
     }
 
     pub fn size(&self) -> vk::DeviceSize {

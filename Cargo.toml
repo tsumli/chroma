@@ -35,3 +35,5 @@ reqwest = { version = "0.12.12", features = ["blocking"] }
 exr = "1.73.0"
 image = "0.25.5"
 meshopt = "0.4.1"
+num-traits = "0.2.19"
+bytemuck = "1.21.0"

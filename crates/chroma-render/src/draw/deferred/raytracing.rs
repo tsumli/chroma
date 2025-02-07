@@ -13,3 +13,13 @@ pub struct BindingTables {
     pub hit: Buffer,
     pub miss: Buffer,
 }
+
+pub fn create_identity_transform_matrix() -> vk::TransformMatrixKHR {
+    vk::TransformMatrixKHR {
+        matrix: [
+            1.0, 0.0, 0.0, 0.0, // First column
+            0.0, 1.0, 0.0, 0.0, // Second column
+            0.0, 0.0, 1.0, 0.0, // Third column
+        ],
+    }
+}

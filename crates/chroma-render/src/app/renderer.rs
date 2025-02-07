@@ -730,7 +730,7 @@ impl Renderer<'_> {
         let wait_fences = vec![self.sync_objects.inflight_fences()[image_index as usize]];
         unsafe {
             device
-                .wait_for_fences(&wait_fences, true, std::u64::MAX)
+                .wait_for_fences(&wait_fences, true, 10000000000)
                 .unwrap();
         }
 

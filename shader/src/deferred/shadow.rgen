@@ -42,28 +42,34 @@ void main() {
     vec3 result_color = vec3(0);
     ray_payload.color = vec3(1);
 
-    for (int sample_i = 0; sample_i < num_samples; sample_i++) {
-        for (int i = 0; i < kMaxRecursion; i++) {
-            payload_seed = tea(gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x + gl_LaunchIDEXT.x,
-                    int(clockRealtimeEXT()));
-            traceRayEXT(tlas, gl_RayFlagsOpaqueEXT, 0xff, 0, 0, 0, origin.xyz, t_min, direction.xyz,
-                t_max, 0);
+    payload_seed = tea(gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x + gl_LaunchIDEXT.x,
+            int(clockRealtimeEXT()));
+    traceRayEXT(tlas, gl_RayFlagsOpaqueEXT, 0xff, 0, 0, 0, origin.xyz, t_min, normalize(vec3(1, 1, 1)),
+        t_max, 0);
 
-            if (ray_payload.dist < 0.0f) {
-                result_color += ray_payload.color;
-                break;
-            } else if (ray_payload.reflector == 1.0f) {
-                const vec4 hit_pos = origin + direction * ray_payload.dist;
-                origin.xyz = hit_pos.xyz + ray_payload.normal * 0.001f;
-                direction.xyz = reflect(direction.xyz, ray_payload.normal);
-                result_color += ray_payload.color;
-            } else {
-                result_color += ray_payload.color;
-                break;
-            }
-        }
-    }
+    // for (int sample_i = 0; sample_i < num_samples; sample_i++) {
+    //     for (int i = 0; i < kMaxRecursion; i++) {
+    //         payload_seed = tea(gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x + gl_LaunchIDEXT.x,
+    //                 int(clockRealtimeEXT()));
+    //         traceRayEXT(tlas, gl_RayFlagsOpaqueEXT, 0xff, 0, 0, 0, origin.xyz, t_min, direction.xyz,
+    //             t_max, 0);
+
+    //         if (ray_payload.dist < 0.0f) {
+    //             result_color += ray_payload.color;
+    //             break;
+    //         } else if (ray_payload.reflector == 1.0f) {
+    //             const vec4 hit_pos = origin + direction * ray_payload.dist;
+    //             origin.xyz = hit_pos.xyz + ray_payload.normal * 0.001f;
+    //             direction.xyz = reflect(direction.xyz, ray_payload.normal);
+    //             result_color += ray_payload.color;
+    //         } else {
+    //             result_color += ray_payload.color;
+    //             break;
+    //         }
+    //     }
+    // }
 
     result_color = result_color / float(num_samples);
     imageStore(result, ivec2(gl_LaunchIDEXT.xy), vec4(result_color, 1.0));
+    imageStore(result, ivec2(gl_LaunchIDEXT.xy), vec4(payload_seed / 10000, 0, 0, 1.0));
 }

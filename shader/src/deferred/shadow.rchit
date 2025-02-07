@@ -17,9 +17,12 @@ layout(set = 0, binding = 0) uniform accelerationStructureEXT tlas;
 layout(set = 0, binding = 1) uniform ubo_transform {
     TransformParams transform;
 };
+layout(set = 0, binding = 1) uniform ubo_camera {
+    CameraParams camera;
+};
 layout(set = 2, binding = 0) buffer GeometryNodes {
-    GeometryNode nodes[];
-} geometry_nodes;
+    GeometryNode geometry_nodes[];
+};
 
 layout(buffer_reference, scalar) buffer Vertices {
     vec4 v[];
@@ -36,7 +39,7 @@ layout(location = 0) rayPayloadInEXT RayPayload ray_payload;
 // coordinates
 Triangle UnpackTriangle(const uint primitive_index) {
     Triangle tri;
-    GeometryNode geometry_node = geometry_nodes.nodes[gl_InstanceID];
+    GeometryNode geometry_node = geometry_nodes[gl_InstanceID];
     Indices indices = Indices(geometry_node.index_buffer_device_address);
     Vertices vertices = Vertices(geometry_node.vertex_buffer_device_address);
 
@@ -45,13 +48,14 @@ Triangle UnpackTriangle(const uint primitive_index) {
     const uint tri_index = primitive_index * 3;
     for (uint i = 0; i < 3; i++) {
         const uint vertex_offset =
-            uint(indices.i[tri_index + i]) * 3; // 12 bytes = 3 vec4 per Vertex
-        const vec4 d0 = vertices.v[vertex_offset + 0]; // pos.xyz, normal.x
-        const vec4 d1 = vertices.v[vertex_offset + 1]; // normal.yz, uv.xy
+            uint(indices.i[tri_index + i]) * 4; // 16 bytes = 4 vec4 per Vertex
+        const vec4 d0 = vertices.v[vertex_offset + 0]; // pos.xyz, uv.x
+        const vec4 d1 = vertices.v[vertex_offset + 1]; // uv.y, normal.xyz
         const vec4 d2 = vertices.v[vertex_offset + 2]; // tangent.xyzw
+        // const vec4 d3 = vertices.v[vertex_offset + 2]; // color.rgba
         tri.vertices[i].position = d0.xyz;
-        tri.vertices[i].normal = vec3(d0.w, d1.xy);
-        tri.vertices[i].uv = d1.zw;
+        tri.vertices[i].uv = vec2(d0.w, d1.x);
+        tri.vertices[i].normal = d1.yzw;
         tri.vertices[i].tangent = d2;
     }
     // Calculate values at barycentric coordinates
@@ -72,7 +76,7 @@ Triangle UnpackTriangle(const uint primitive_index) {
 
 void main() {
     Triangle tri = UnpackTriangle(gl_PrimitiveID);
-    GeometryNode geometry_node = geometry_nodes.nodes[gl_InstanceID];
+    GeometryNode geometry_node = geometry_nodes[gl_InstanceID];
     const vec3 normal_ws = normalize(mat3x3(transform.world) * tri.normal);
 
     ray_payload.dist = gl_RayTmaxEXT;

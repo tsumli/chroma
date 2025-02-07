@@ -3,12 +3,9 @@
 #extension GL_ARB_shading_language_include : require
 
 #include "frag_input.glsl"
+#include "common.glsl"
 
 // uniform
-struct MaterialParams {
-    vec4 base_color_factor;
-    vec4 metallic_roughness_transmission_factor;
-};
 layout(set = 1, binding = 0) uniform material_ubo {
     MaterialParams material;
 };

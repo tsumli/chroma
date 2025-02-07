@@ -13,7 +13,7 @@ use std::{
     ffi::CStr,
 };
 
-const DEVICE_EXTENSIONS: [&CStr; 8] = [
+const DEVICE_EXTENSIONS: [&CStr; 9] = [
     ash::khr::swapchain::NAME,
     ash::ext::robustness2::NAME,
     ash::khr::deferred_host_operations::NAME,
@@ -22,6 +22,7 @@ const DEVICE_EXTENSIONS: [&CStr; 8] = [
     ash::khr::acceleration_structure::NAME,
     ash::ext::mesh_shader::NAME,
     ash::khr::spirv_1_4::NAME,
+    ash::khr::shader_clock::NAME,
 ];
 
 pub fn pick_physical_device(
@@ -148,8 +149,15 @@ pub fn create_logical_device(
         queue_create_infos.push(queue_create_info);
     }
 
+    let mut physical_device_shader_clock_features =
+        vk::PhysicalDeviceShaderClockFeaturesKHR::default()
+            .shader_subgroup_clock(true)
+            .shader_device_clock(true);
+
     let mut physical_device_maintenance4_features =
         vk::PhysicalDeviceMaintenance4FeaturesKHR::default().maintenance4(true);
+    physical_device_maintenance4_features.p_next =
+        &mut physical_device_shader_clock_features as *mut _ as *mut std::ffi::c_void;
 
     let mut physical_device_eight_bit_storage_features =
         vk::PhysicalDevice8BitStorageFeatures::default()

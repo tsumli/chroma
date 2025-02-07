@@ -2330,7 +2330,8 @@ impl Deferred<'_> {
                         .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
                         .descriptor_count(1)
                         .stage_flags(
-                            vk::ShaderStageFlags::RAYGEN_KHR | vk::ShaderStageFlags::ANY_HIT_KHR,
+                            vk::ShaderStageFlags::RAYGEN_KHR
+                                | vk::ShaderStageFlags::CLOSEST_HIT_KHR,
                         ),
                 ]),
                 ash_device.clone(),
@@ -2397,6 +2398,7 @@ impl Deferred<'_> {
                     .dst_set(shadow_descriptor_sets[frame_i].vk_descriptor_set(0))
                     .dst_binding(0)
                     .dst_array_element(0)
+                    .descriptor_count(1) // it contains TLAS
                     .descriptor_type(vk::DescriptorType::ACCELERATION_STRUCTURE_KHR)
                     .push_next(&mut tlas_info),
             );
@@ -2514,7 +2516,6 @@ impl Deferred<'_> {
                 create_shader_module(&ash_device, closest_hit_shader_code)?;
             let main_function_name = CString::new("main")?;
 
-            log::info!("setting up raytracing shader groups");
             let specialization_map_entries = [vk::SpecializationMapEntry::default()
                 .constant_id(0)
                 .offset(0)
@@ -2547,13 +2548,22 @@ impl Deferred<'_> {
             let create_infos = [
                 vk::RayTracingShaderGroupCreateInfoKHR::default()
                     .ty(vk::RayTracingShaderGroupTypeKHR::GENERAL)
-                    .general_shader(0),
+                    .general_shader(0)
+                    .closest_hit_shader(vk::SHADER_UNUSED_KHR)
+                    .any_hit_shader(vk::SHADER_UNUSED_KHR)
+                    .intersection_shader(vk::SHADER_UNUSED_KHR),
                 vk::RayTracingShaderGroupCreateInfoKHR::default()
                     .ty(vk::RayTracingShaderGroupTypeKHR::GENERAL)
-                    .general_shader(1),
+                    .general_shader(1)
+                    .closest_hit_shader(vk::SHADER_UNUSED_KHR)
+                    .any_hit_shader(vk::SHADER_UNUSED_KHR)
+                    .intersection_shader(vk::SHADER_UNUSED_KHR),
                 vk::RayTracingShaderGroupCreateInfoKHR::default()
                     .ty(vk::RayTracingShaderGroupTypeKHR::TRIANGLES_HIT_GROUP)
-                    .closest_hit_shader(2),
+                    .general_shader(vk::SHADER_UNUSED_KHR)
+                    .closest_hit_shader(2)
+                    .any_hit_shader(vk::SHADER_UNUSED_KHR)
+                    .intersection_shader(vk::SHADER_UNUSED_KHR),
             ];
             let raytracing_pipeline_create_info = vk::RayTracingPipelineCreateInfoKHR::default()
                 .stages(&shader_stages)

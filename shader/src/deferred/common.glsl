@@ -24,4 +24,13 @@ struct LightParams {
     vec4 color;
 };
 
+struct MaterialParams {
+    vec4 base_color_factor;
+    vec4 metallic_roughness_transmission_factor;
+};
+
+struct CameraParams {
+    vec3 position;
+};
+
 #endif

@@ -9,8 +9,8 @@
 #include "random.glsl"
 
 layout(set = 0, binding = 0) uniform accelerationStructureEXT tlas;
-layout(set = 0, binding = 1) uniform camera_matrix_ubo {
-    CameraMatrixParams cam;
+layout(set = 0, binding = 1) uniform transform_ubo {
+    TransformParams transform;
 };
 
 layout(set = 1, binding = 0, rgba32f) uniform image2D result;
@@ -31,9 +31,9 @@ void main() {
     const vec2 uv = pixel_center / vec2(gl_LaunchSizeEXT.xy);
     const vec2 d = uv * 2.0 - 1.0;
 
-    vec4 origin = cam.view_inv * vec4(0, 0, 0, 1);
-    const vec4 target = cam.proj_inv * vec4(d.x, d.y, 1, 1);
-    vec4 direction = cam.view_inv * vec4(normalize(target.xyz), 0);
+    vec4 origin = transform.view_inv * vec4(0, 0, 0, 1);
+    const vec4 target = transform.proj_inv * vec4(d.x, d.y, 1, 1);
+    vec4 direction = transform.view_inv * vec4(normalize(target.xyz), 0);
 
     const float t_min = 0.01;
     const float t_max = 1000.0;
@@ -44,32 +44,29 @@ void main() {
 
     payload_seed = tea(gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x + gl_LaunchIDEXT.x,
             int(clockRealtimeEXT()));
-    traceRayEXT(tlas, gl_RayFlagsOpaqueEXT, 0xff, 0, 0, 0, origin.xyz, t_min, normalize(vec3(1, 1, 1)),
-        t_max, 0);
 
-    // for (int sample_i = 0; sample_i < num_samples; sample_i++) {
-    //     for (int i = 0; i < kMaxRecursion; i++) {
-    //         payload_seed = tea(gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x + gl_LaunchIDEXT.x,
-    //                 int(clockRealtimeEXT()));
-    //         traceRayEXT(tlas, gl_RayFlagsOpaqueEXT, 0xff, 0, 0, 0, origin.xyz, t_min, direction.xyz,
-    //             t_max, 0);
+    for (int sample_i = 0; sample_i < num_samples; sample_i++) {
+        for (int i = 0; i < kMaxRecursion; i++) {
+            payload_seed = tea(gl_LaunchIDEXT.y * gl_LaunchSizeEXT.x + gl_LaunchIDEXT.x,
+                    int(clockRealtimeEXT()));
+            traceRayEXT(tlas, gl_RayFlagsOpaqueEXT, 0xff, 0, 0, 0, origin.xyz, t_min, direction.xyz,
+                t_max, 0);
 
-    //         if (ray_payload.dist < 0.0f) {
-    //             result_color += ray_payload.color;
-    //             break;
-    //         } else if (ray_payload.reflector == 1.0f) {
-    //             const vec4 hit_pos = origin + direction * ray_payload.dist;
-    //             origin.xyz = hit_pos.xyz + ray_payload.normal * 0.001f;
-    //             direction.xyz = reflect(direction.xyz, ray_payload.normal);
-    //             result_color += ray_payload.color;
-    //         } else {
-    //             result_color += ray_payload.color;
-    //             break;
-    //         }
-    //     }
-    // }
+            if (ray_payload.dist < 0.0f) {
+                result_color += ray_payload.color;
+                break;
+            } else if (ray_payload.reflector == 1.0f) {
+                const vec4 hit_pos = origin + direction * ray_payload.dist;
+                origin.xyz = hit_pos.xyz + ray_payload.normal * 0.001f;
+                direction.xyz = reflect(direction.xyz, ray_payload.normal);
+                result_color += ray_payload.color;
+            } else {
+                result_color += ray_payload.color;
+                break;
+            }
+        }
+    }
 
     result_color = result_color / float(num_samples);
-    imageStore(result, ivec2(gl_LaunchIDEXT.xy), vec4(result_color, 1.0));
-    imageStore(result, ivec2(gl_LaunchIDEXT.xy), vec4(payload_seed / 10000, 0, 0, 1.0));
+    imageStore(result, ivec2(gl_LaunchIDEXT.xy), vec4(payload_seed / 50000000, 0.0, 0.0, 1.0));
 }

@@ -9,8 +9,6 @@
 #include "common.glsl"
 #include "raytracing_common.glsl"
 
-layout(location = 2) rayPayloadEXT bool shadowed;
-
 hitAttributeEXT vec2 attribs;
 
 layout(set = 0, binding = 0) uniform accelerationStructureEXT tlas;
@@ -93,13 +91,12 @@ void main() {
         gl_WorldRayOriginEXT + gl_WorldRayDirectionEXT * gl_HitTEXT + tri.normal * epsilon;
 
     // Trace shadow ray and offset indices to match shadow hit/miss shader group indices
-    shadowed = true;
     traceRayEXT(tlas,
         gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT |
             gl_RayFlagsSkipClosestHitShaderEXT,
-        0xFF, 0, 0, 1, origin, t_min, normalize(light_pos - tri.position.xyz), t_max, 2);
+        0xFF, 0, 0, 0, origin, t_min, normalize(light_pos - tri.position.xyz), t_max, 0);
 
-    if (shadowed) {
+    if (ray_payload.shadowed) {
         ray_payload.color *= 0.3;
     }
 }

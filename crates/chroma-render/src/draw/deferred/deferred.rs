@@ -339,10 +339,10 @@ impl Deferred<'_> {
                         for primitive_i in cur_primitive_idx..vertex_buffers.len() {
                             // transform buffer
                             {
-                                let identity = Mat3x4::identity();
+                                let identity = create_identity_transform_matrix();
                                 let transform_buffer = common::buffer::Buffer::new(
-                                identity.as_ptr() as *const std::ffi::c_void,
-                                std::mem::size_of::<Mat3x4>() as u64,
+                                identity.matrix.as_ptr() as *const std::ffi::c_void,
+                                std::mem::size_of_val(&identity.matrix) as u64,
                                 1,
                                 vk::BufferUsageFlags::STORAGE_BUFFER
                                     | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS | vk::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR,
@@ -2279,16 +2279,6 @@ impl Deferred<'_> {
                                 | vk::ShaderStageFlags::CLOSEST_HIT_KHR
                                 | vk::ShaderStageFlags::MISS_KHR,
                         ),
-                    // camera
-                    vk::DescriptorSetLayoutBinding::default()
-                        .binding(2)
-                        .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                        .descriptor_count(1)
-                        .stage_flags(
-                            vk::ShaderStageFlags::RAYGEN_KHR
-                                | vk::ShaderStageFlags::CLOSEST_HIT_KHR
-                                | vk::ShaderStageFlags::MISS_KHR,
-                        ),
                     // TODO: light
                 ]),
                 ash_device.clone(),
@@ -2343,10 +2333,10 @@ impl Deferred<'_> {
                     vk::DescriptorPoolSize::default()
                         .ty(vk::DescriptorType::STORAGE_IMAGE)
                         .descriptor_count(MAX_FRAMES_IN_FLIGHT as u32),
-                    // transform + camera
+                    // transform
                     vk::DescriptorPoolSize::default()
                         .ty(vk::DescriptorType::UNIFORM_BUFFER)
-                        .descriptor_count(MAX_FRAMES_IN_FLIGHT as u32 * 2),
+                        .descriptor_count(MAX_FRAMES_IN_FLIGHT as u32),
                     // skybox
                     vk::DescriptorPoolSize::default()
                         .ty(vk::DescriptorType::SAMPLED_IMAGE)
@@ -2407,20 +2397,6 @@ impl Deferred<'_> {
                     .dst_array_element(0)
                     .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                     .buffer_info(&transform_ubo_buffer_info),
-            );
-
-            // camera
-            let camera_ubo_buffer_info = [vk::DescriptorBufferInfo::default()
-                .buffer(camera_ubo.vk_buffer(frame_i))
-                .offset(0)
-                .range(camera_ubo.get_type_size())];
-            descriptor_writes.push(
-                vk::WriteDescriptorSet::default()
-                    .dst_set(shadow_descriptor_sets[frame_i].vk_descriptor_set(0))
-                    .dst_binding(2)
-                    .dst_array_element(0)
-                    .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                    .buffer_info(&camera_ubo_buffer_info),
             );
 
             // output
@@ -2631,7 +2607,7 @@ impl Deferred<'_> {
 
         let raygen_shader_binding_table = Buffer::new(
             shader_handle_storage.as_ptr() as *const _,
-            shader_binding_table_size as u64,
+            handle_size as u64,
             1,
             buffer_usage_flags,
             memory_property_flags,
@@ -2645,7 +2621,7 @@ impl Deferred<'_> {
                 (shader_handle_storage.as_ptr() as *const u8).add(handle_size_aligned as usize)
                     as *const _
             },
-            shader_binding_table_size as u64,
+            handle_size as u64,
             1,
             buffer_usage_flags,
             memory_property_flags,
@@ -2659,7 +2635,7 @@ impl Deferred<'_> {
                 (shader_handle_storage.as_ptr() as *const u8).add(handle_size_aligned as usize * 2)
                     as *const _
             },
-            shader_binding_table_size as u64,
+            handle_size as u64,
             1,
             buffer_usage_flags,
             memory_property_flags,
@@ -3025,6 +3001,7 @@ impl DrawStrategy for Deferred<'_> {
     }
 
     fn output_render_target(&self) -> &ImageBuffer {
-        &self.graphics_render_targets[&GraphicsRenderTarget::Output]
+        // &self.graphics_render_targets[&GraphicsRenderTarget::Output]
+        &self.shadow_render_targets[&ShadowRenderTarget::Output]
     }
 }

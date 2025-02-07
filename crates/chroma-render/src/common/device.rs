@@ -13,7 +13,7 @@ use std::{
     ffi::CStr,
 };
 
-const DEVICE_EXTENSIONS: [&CStr; 9] = [
+const DEVICE_EXTENSIONS: [&CStr; 12] = [
     ash::khr::swapchain::NAME,
     ash::ext::robustness2::NAME,
     ash::khr::deferred_host_operations::NAME,
@@ -23,6 +23,9 @@ const DEVICE_EXTENSIONS: [&CStr; 9] = [
     ash::ext::mesh_shader::NAME,
     ash::khr::spirv_1_4::NAME,
     ash::khr::shader_clock::NAME,
+    ash::khr::buffer_device_address::NAME,
+    ash::ext::descriptor_indexing::NAME,
+    ash::khr::synchronization2::NAME,
 ];
 
 pub fn pick_physical_device(

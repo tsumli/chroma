@@ -11,4 +11,5 @@ void main() {
     ray_payload.dist = -1.0;
     ray_payload.normal = vec3(0.0, 0.0, 0.0);
     ray_payload.reflector = 0.0f;
+    ray_payload.shadowed = false;
 }

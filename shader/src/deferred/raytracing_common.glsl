@@ -24,6 +24,7 @@ struct RayPayload {
     float dist;
     vec3 normal;
     float reflector;
+    bool shadowed;
 };
 
 struct CameraMatrixParams {

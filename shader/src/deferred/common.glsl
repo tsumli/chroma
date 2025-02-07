@@ -8,6 +8,8 @@ struct TransformParams {
     mat4x4 view_proj;
     mat4x4 world_view_proj;
     mat4x4 proj_to_world;
+    mat4x4 view_inv;
+    mat4x4 proj_inv;
 };
 
 struct Vertex {

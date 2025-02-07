@@ -45,6 +45,8 @@ pub struct TransformParams {
     pub view_proj: Mat4,
     pub world_view_proj: Mat4,
     pub proj_to_world: Mat4,
+    pub view_inv: Mat4,
+    pub proj_inv: Mat4,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -219,13 +221,6 @@ impl Camera {
             view_proj: self.proj * view_matrix,
             world_view_proj: self.proj * view_matrix * self.world,
             proj_to_world: proj_to_world_matrix,
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn create_camera_matrix_params(&self) -> CameraMatrixParams {
-        let view_matrix = self.create_view_matrix();
-        CameraMatrixParams {
             view_inv: nalgebra_glm::inverse(&view_matrix),
             proj_inv: nalgebra_glm::inverse(&self.proj),
         }

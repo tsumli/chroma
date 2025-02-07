@@ -14,13 +14,6 @@ unsafe extern "system" fn vulkan_debug_utils_callback(
     p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT,
     _p_user_data: *mut c_void,
 ) -> vk::Bool32 {
-    let severity = match message_severity {
-        vk::DebugUtilsMessageSeverityFlagsEXT::VERBOSE => "[Verbose]",
-        vk::DebugUtilsMessageSeverityFlagsEXT::WARNING => "[Warning]",
-        vk::DebugUtilsMessageSeverityFlagsEXT::ERROR => "[Error]",
-        vk::DebugUtilsMessageSeverityFlagsEXT::INFO => "[Info]",
-        _ => "[Unknown]",
-    };
     let types = match message_type {
         vk::DebugUtilsMessageTypeFlagsEXT::GENERAL => "[General]",
         vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE => "[Performance]",
@@ -28,7 +21,19 @@ unsafe extern "system" fn vulkan_debug_utils_callback(
         _ => "[Unknown]",
     };
     let message = CStr::from_ptr((*p_callback_data).p_message);
-    log::debug!("{}{}{:?}", severity, types, message);
+
+    match message_severity {
+        vk::DebugUtilsMessageSeverityFlagsEXT::INFO => {
+            log::debug!("{} {:?}", types, message)
+        }
+        vk::DebugUtilsMessageSeverityFlagsEXT::WARNING => {
+            log::warn!("{} {:?}", types, message)
+        }
+        vk::DebugUtilsMessageSeverityFlagsEXT::ERROR => {
+            log::error!("{} {:?}", types, message)
+        }
+        _ => log::info!("{} {:?}", types, message),
+    }
 
     vk::FALSE
 }

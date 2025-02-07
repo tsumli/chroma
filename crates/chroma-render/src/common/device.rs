@@ -152,10 +152,16 @@ pub fn create_logical_device(
         queue_create_infos.push(queue_create_info);
     }
 
+    let mut physical_device_raytracing_position_fetch_features =
+        vk::PhysicalDeviceRayTracingPositionFetchFeaturesKHR::default()
+            .ray_tracing_position_fetch(true);
+
     let mut physical_device_shader_clock_features =
         vk::PhysicalDeviceShaderClockFeaturesKHR::default()
             .shader_subgroup_clock(true)
             .shader_device_clock(true);
+    physical_device_shader_clock_features.p_next =
+        &mut physical_device_raytracing_position_fetch_features as *mut _ as *mut std::ffi::c_void;
 
     let mut physical_device_maintenance4_features =
         vk::PhysicalDeviceMaintenance4FeaturesKHR::default().maintenance4(true);
@@ -176,13 +182,11 @@ pub fn create_logical_device(
     physical_device_mesh_shader_features.p_next =
         &mut physical_device_eight_bit_storage_features as *mut _ as *mut std::ffi::c_void;
 
-    // physical_device_timeline_semaphore_features
     let mut physical_device_timeline_semaphore_features =
         vk::PhysicalDeviceTimelineSemaphoreFeatures::default().timeline_semaphore(true);
     physical_device_timeline_semaphore_features.p_next =
         &mut physical_device_mesh_shader_features as *mut _ as *mut std::ffi::c_void;
 
-    // raytracing_pipeline_features
     let mut raytracing_pipeline_features =
         vk::PhysicalDeviceRayTracingPipelineFeaturesKHR::default()
             .ray_tracing_pipeline(true)
@@ -191,7 +195,6 @@ pub fn create_logical_device(
     raytracing_pipeline_features.p_next =
         &mut physical_device_timeline_semaphore_features as *mut _ as *mut std::ffi::c_void;
 
-    // acceleration_structure_features
     let mut acceleration_structure_features =
         vk::PhysicalDeviceAccelerationStructureFeaturesKHR::default()
             .acceleration_structure(true)
@@ -200,26 +203,22 @@ pub fn create_logical_device(
     acceleration_structure_features.p_next =
         &mut raytracing_pipeline_features as *mut _ as *mut std::ffi::c_void;
 
-    // scalar_block_layout_features
     let mut scalar_block_layout_features =
         vk::PhysicalDeviceScalarBlockLayoutFeaturesEXT::default().scalar_block_layout(true);
     scalar_block_layout_features.p_next =
         &mut acceleration_structure_features as *mut _ as *mut std::ffi::c_void;
 
-    // synchronization2_features
     let mut synchronization2_features =
         vk::PhysicalDeviceSynchronization2FeaturesKHR::default().synchronization2(true);
     synchronization2_features.p_next =
         &mut scalar_block_layout_features as *mut _ as *mut std::ffi::c_void;
 
-    // robustness2_features
     let mut robustness2_features = vk::PhysicalDeviceRobustness2FeaturesEXT::default()
         .null_descriptor(true)
         .robust_buffer_access2(true)
         .robust_image_access2(true);
     robustness2_features.p_next = &mut synchronization2_features as *mut _ as *mut std::ffi::c_void;
 
-    // buffer_device_address_features
     let mut buffer_device_address_features =
         vk::PhysicalDeviceBufferDeviceAddressFeatures::default()
             .buffer_device_address(true)
@@ -228,7 +227,6 @@ pub fn create_logical_device(
     buffer_device_address_features.p_next =
         &mut robustness2_features as *mut _ as *mut std::ffi::c_void;
 
-    // physical_device_features
     let mut physical_device_features = vk::PhysicalDeviceFeatures2::default()
         .features(
             vk::PhysicalDeviceFeatures::default()

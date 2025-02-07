@@ -27,11 +27,6 @@ struct RayPayload {
     bool shadowed;
 };
 
-struct CameraMatrixParams {
-    mat4 view_inv;
-    mat4 proj_inv;
-};
-
-const int kMaxRecursion = 4;
+const int kMaxRecursion = 2;
 
 #endif

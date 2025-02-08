@@ -4,6 +4,7 @@ use super::{
         ShaderBindingTable,
     },
     shadow::ShadowResource,
+    skybox::SkyboxResources,
 };
 use crate::{
     common::{
@@ -23,6 +24,7 @@ use crate::{
         consts::MAX_FRAMES_IN_FLIGHT,
         descriptor_pool,
         device::find_queue_family,
+        extra_functions::ExtraFunctions,
         image_buffer::ImageBuffer,
         index::Index,
         material::MaterialParams,
@@ -52,7 +54,10 @@ use crate::{
         texture_sampler::create_texture_sampler,
     },
     utils::{
-        math,
+        math::{
+            self,
+            div_up,
+        },
         tangent::compute_tangent,
     },
 };
@@ -100,40 +105,6 @@ const NUM_GRAPHICS_DESCRIPTOR_SETS: usize = 2;
 const NUM_COMPUTE_DESCRIPTOR_SETS: usize = 3;
 const MIP_LEVEL: u32 = 3;
 
-struct SkyboxResources {
-    pub skybox_texture: Texture,
-}
-
-#[derive(Clone)]
-pub struct AdditionalFunctions {
-    pub acceleration_structure: ash::khr::acceleration_structure::Device,
-    pub raytracing_pipeline: ash::khr::ray_tracing_pipeline::Device,
-    pub mesh_shader: ash::ext::mesh_shader::Device,
-    pub get_physical_device_properties2: ash::khr::get_physical_device_properties2::Instance,
-
-    #[allow(dead_code)]
-    pub debug_utils: ash::ext::debug_utils::Device,
-}
-
-impl AdditionalFunctions {
-    pub fn new(entry: &ash::Entry, instance: &ash::Instance, device: &ash::Device) -> Self {
-        let acceleration_structure =
-            ash::khr::acceleration_structure::Device::new(instance, device);
-        let raytracing_pipeline = ash::khr::ray_tracing_pipeline::Device::new(instance, device);
-        let mesh_shader = ash::ext::mesh_shader::Device::new(instance, device);
-        let get_physical_device_properties2 =
-            ash::khr::get_physical_device_properties2::Instance::new(entry, instance);
-        let debug_utils = ash::ext::debug_utils::Device::new(instance, device);
-        Self {
-            acceleration_structure,
-            raytracing_pipeline,
-            mesh_shader,
-            get_physical_device_properties2,
-            debug_utils,
-        }
-    }
-}
-
 pub struct Deferred {
     _transform_ubo: uniform_buffer::UniformBuffer<TransformParams>,
     _camera_ubo: uniform_buffer::UniformBuffer<CameraParams>,
@@ -161,7 +132,7 @@ pub struct Deferred {
     meshlet_buffers: Vec<common::buffer::Buffer>,
     _meshlet_vertices_buffers: Vec<common::buffer::Buffer>,
     _meshlet_triangle_buffers: Vec<common::buffer::Buffer>,
-    additional_functions: AdditionalFunctions,
+    extra_functions: ExtraFunctions,
     shadow_resource: ShadowResource,
     raytracing_pipeline_props: RaytracingPipelineProperties,
 }
@@ -179,7 +150,7 @@ impl Deferred {
         entry: ash::Entry,
     ) -> Result<Self> {
         log::info!("setup additional functions");
-        let additional_functions = AdditionalFunctions::new(&entry, &instance, &ash_device);
+        let extra_functions = ExtraFunctions::new(&entry, &instance, &ash_device);
 
         log::info!("creating graphics queues");
         let family_indices = find_queue_family(&instance, physical_device, surface)?;
@@ -391,7 +362,7 @@ impl Deferred {
                             ensure!(index_buffers[primitive_i].len() % 3 == 0);
                             let num_triangles = index_buffers[primitive_i].len() as u32 / 3;
                             unsafe {
-                                additional_functions
+                                extra_functions
                                     .acceleration_structure
                                     .get_acceleration_structure_build_sizes(
                                         vk::AccelerationStructureBuildTypeKHR::default(),
@@ -430,7 +401,7 @@ impl Deferred {
                                             .acceleration_structure_size,
                                     );
                             let handle = unsafe {
-                                additional_functions
+                                extra_functions
                                     .acceleration_structure
                                     .create_acceleration_structure(
                                         &acceleration_structure_create_info,
@@ -487,7 +458,7 @@ impl Deferred {
                                 ash_device.clone(),
                             );
                             unsafe {
-                                additional_functions
+                                extra_functions
                                     .acceleration_structure
                                     .cmd_build_acceleration_structures(
                                         command_buffer,
@@ -503,7 +474,7 @@ impl Deferred {
                             );
 
                             let acceleration_device_address = unsafe {
-                                additional_functions
+                                extra_functions
                                     .acceleration_structure
                                     .get_acceleration_structure_device_address(
                                         &vk::AccelerationStructureDeviceAddressInfoKHR::default()
@@ -895,7 +866,7 @@ impl Deferred {
                 vk::AccelerationStructureBuildSizesInfoKHR::default();
             let primitive_count = instances.len() as u32;
             unsafe {
-                additional_functions
+                extra_functions
                     .acceleration_structure
                     .get_acceleration_structure_build_sizes(
                         vk::AccelerationStructureBuildTypeKHR::default(),
@@ -925,7 +896,7 @@ impl Deferred {
                     .size(acceleration_structure_build_sizes_info.acceleration_structure_size);
 
             let handle = unsafe {
-                additional_functions
+                extra_functions
                     .acceleration_structure
                     .create_acceleration_structure(&acceleration_structure_create_info, None)?
             };
@@ -977,7 +948,7 @@ impl Deferred {
                 begin_single_time_command(command_pool.vk_command_pool(), ash_device.clone());
 
             unsafe {
-                additional_functions
+                extra_functions
                     .acceleration_structure
                     .cmd_build_acceleration_structures(
                         command_buffer,
@@ -994,7 +965,7 @@ impl Deferred {
             );
 
             let device_address = unsafe {
-                additional_functions
+                extra_functions
                     .acceleration_structure
                     .get_acceleration_structure_device_address(
                         &vk::AccelerationStructureDeviceAddressInfoKHR::default()
@@ -2563,7 +2534,7 @@ impl Deferred {
             let shadow_pipeline = common::raytracing_pipeline::RaytracingPipeline::new(
                 &raytracing_pipeline_create_info,
                 ash_device.clone(),
-                additional_functions.raytracing_pipeline.clone(),
+                extra_functions.raytracing_pipeline.clone(),
             );
             unsafe {
                 ash_device.destroy_shader_module(raygen_shader_module, None);
@@ -2580,7 +2551,7 @@ impl Deferred {
             let mut physical_device_props =
                 vk::PhysicalDeviceProperties2::default().push_next(&mut raytracing_pipeline_props);
             unsafe {
-                additional_functions
+                extra_functions
                     .get_physical_device_properties2
                     .get_physical_device_properties2(physical_device, &mut physical_device_props);
             }
@@ -2598,7 +2569,7 @@ impl Deferred {
         let mut shadow_shader_binding_tables = Vec::new();
         for frame_i in 0..MAX_FRAMES_IN_FLIGHT {
             let shader_handle_storage = unsafe {
-                additional_functions
+                extra_functions
                     .raytracing_pipeline
                     .get_ray_tracing_shader_group_handles(
                         shadow_pipelines[frame_i].pipeline(),
@@ -2690,7 +2661,7 @@ impl Deferred {
             _metallic_roughness_textures: metallic_roughness_textures,
             _emissive_textures: emissive_textures,
             _skybox_resources: skybox_resources,
-            additional_functions,
+            extra_functions,
             shadow_resource: ShadowResource {
                 _shadow_descriptor_pool: shadow_descriptor_pool,
                 _bottom_level_acceleration_structures: bottom_level_acceleration_structures,
@@ -2836,7 +2807,7 @@ impl DrawStrategy for Deferred {
             }
 
             unsafe {
-                self.additional_functions
+                self.extra_functions
                     .mesh_shader
                     .cmd_draw_mesh_tasks(command_buffer, 1, 1, 1);
             }
@@ -2958,18 +2929,16 @@ impl DrawStrategy for Deferred {
                 .get(&ShadowRenderTarget::Output)
                 .unwrap()
                 .extent();
-            self.additional_functions
-                .raytracing_pipeline
-                .cmd_trace_rays(
-                    command_buffer,
-                    &raygen_shader_binding_table_entry,
-                    &miss_shader_binding_table_entry,
-                    &hit_shader_binding_table_entry,
-                    &callable_shader_binding_table,
-                    extent.width,
-                    extent.height,
-                    1,
-                );
+            self.extra_functions.raytracing_pipeline.cmd_trace_rays(
+                command_buffer,
+                &raygen_shader_binding_table_entry,
+                &miss_shader_binding_table_entry,
+                &hit_shader_binding_table_entry,
+                &callable_shader_binding_table,
+                extent.width,
+                extent.height,
+                1,
+            );
         }
 
         log::debug!("draw deferred pass");
@@ -2992,7 +2961,6 @@ impl DrawStrategy for Deferred {
             );
         }
 
-        let div_up = |a, b| (a + b - 1) / b;
         let group_count_x = div_up(extent.width, 16);
         let group_count_y = div_up(extent.height, 16);
 

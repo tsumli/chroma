@@ -102,17 +102,17 @@ struct SkyboxResources {
 
 #[derive(Clone)]
 pub struct AdditionalFunctions {
-    pub buffer_device_address: ash::khr::buffer_device_address::Device,
     pub acceleration_structure: ash::khr::acceleration_structure::Device,
     pub raytracing_pipeline: ash::khr::ray_tracing_pipeline::Device,
     pub mesh_shader: ash::ext::mesh_shader::Device,
     pub get_physical_device_properties2: ash::khr::get_physical_device_properties2::Instance,
+
+    #[allow(dead_code)]
     pub debug_utils: ash::ext::debug_utils::Device,
 }
 
 impl AdditionalFunctions {
     pub fn new(entry: &ash::Entry, instance: &ash::Instance, device: &ash::Device) -> Self {
-        let buffer_device_address = ash::khr::buffer_device_address::Device::new(instance, device);
         let acceleration_structure =
             ash::khr::acceleration_structure::Device::new(instance, device);
         let raytracing_pipeline = ash::khr::ray_tracing_pipeline::Device::new(instance, device);
@@ -121,7 +121,6 @@ impl AdditionalFunctions {
             ash::khr::get_physical_device_properties2::Instance::new(entry, instance);
         let debug_utils = ash::ext::debug_utils::Device::new(instance, device);
         Self {
-            buffer_device_address,
             acceleration_structure,
             raytracing_pipeline,
             mesh_shader,
@@ -850,7 +849,7 @@ impl Deferred<'_> {
         let (
             top_level_acceleration_structure,
             top_level_acceleration_structure_handle,
-            top_level_acceleration_structure_device_address,
+            _top_level_acceleration_structure_device_address,
         ) = {
             let mut instances = Vec::new();
             for address in &bottom_level_acceleration_structure_device_addresses {
@@ -1438,7 +1437,7 @@ impl Deferred<'_> {
             let transform_ubo_buffer_info = [vk::DescriptorBufferInfo::default()
                 .buffer(transform_ubo.vk_buffer(frame_i))
                 .offset(0)
-                .range(transform_ubo.get_type_size())];
+                .range(transform_ubo.type_size())];
 
             for (primitive_i, set_i) in (0..primitive_size).zip(
                 (0..primitive_size * NUM_GRAPHICS_DESCRIPTOR_SETS)
@@ -1539,7 +1538,7 @@ impl Deferred<'_> {
                 let material_ubo_buffer_info = [vk::DescriptorBufferInfo::default()
                     .buffer(material_ubo[primitive_i].vk_buffer(frame_i))
                     .offset(0)
-                    .range(material_ubo[primitive_i].get_type_size())];
+                    .range(material_ubo[primitive_i].type_size())];
                 descriptor_writes.push(
                     vk::WriteDescriptorSet::default()
                         .dst_set(
@@ -2065,7 +2064,7 @@ impl Deferred<'_> {
             let transform_ubo_buffer_info = [vk::DescriptorBufferInfo::default()
                 .buffer(transform_ubo.vk_buffer(frame_i))
                 .offset(0)
-                .range(transform_ubo.get_type_size())];
+                .range(transform_ubo.type_size())];
             descriptor_writes.push(
                 vk::WriteDescriptorSet::default()
                     .dst_set(compute_descriptor_sets[frame_i].vk_descriptor_set(0))
@@ -2079,7 +2078,7 @@ impl Deferred<'_> {
             let camera_ubo_buffer_info = [vk::DescriptorBufferInfo::default()
                 .buffer(camera_ubo.vk_buffer(frame_i))
                 .offset(0)
-                .range(camera_ubo.get_type_size())];
+                .range(camera_ubo.type_size())];
             descriptor_writes.push(
                 vk::WriteDescriptorSet::default()
                     .dst_set(compute_descriptor_sets[frame_i].vk_descriptor_set(0))
@@ -2422,7 +2421,7 @@ impl Deferred<'_> {
             let transform_ubo_buffer_info = [vk::DescriptorBufferInfo::default()
                 .buffer(transform_ubo.vk_buffer(frame_i))
                 .offset(0)
-                .range(transform_ubo.get_type_size())];
+                .range(transform_ubo.type_size())];
             descriptor_writes.push(
                 vk::WriteDescriptorSet::default()
                     .dst_set(shadow_descriptor_sets[frame_i].vk_descriptor_set(0))

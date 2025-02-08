@@ -167,6 +167,7 @@ impl Buffer {
         self.len
     }
 
+    #[allow(dead_code)]
     pub fn type_size(&self) -> vk::DeviceSize {
         self.type_size
     }

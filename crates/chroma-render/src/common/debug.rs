@@ -7,6 +7,7 @@ use std::ffi::{
     CStr,
 };
 
+#[allow(dead_code)]
 pub fn set_debug_name<T: ash::vk::Handle>(
     device: ash::ext::debug_utils::Device,
     handle: T,

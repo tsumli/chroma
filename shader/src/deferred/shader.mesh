@@ -5,19 +5,11 @@
 #extension GL_ARB_shading_language_include : require
 #extension GL_EXT_scalar_block_layout : require
 
+#include "common.glsl"
 #include "frag_input.glsl"
 
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 layout(triangles, max_vertices = 256, max_primitives = 128) out;
-
-struct TransformParams {
-    mat4x4 world;
-    mat4x4 view;
-    mat4x4 proj;
-    mat4x4 view_proj;
-    mat4x4 world_view_proj;
-    mat4x4 proj_to_world;
-};
 
 // meshopt::ffi::meshopt_Meshlet
 struct Meshlet {
@@ -25,14 +17,6 @@ struct Meshlet {
     uint triangle_offset;
     uint vertex_count;
     uint triangle_count;
-};
-
-struct VertexInput {
-    vec3 position;
-    vec2 uv;
-    vec3 normal;
-    vec4 tangent;
-    vec4 color;
 };
 
 layout(set = 0, binding = 0) uniform ubo {
@@ -47,8 +31,8 @@ layout(set = 1, binding = 2) readonly buffer MeshletVertices {
 layout(set = 1, binding = 3) readonly buffer MeshletTriangles {
     uint8_t meshlet_triangles[];
 };
-layout(set = 1, binding = 4, scalar) readonly buffer VertexInputBuffer {
-    VertexInput vertex_inputs[];
+layout(set = 1, binding = 4, scalar) readonly buffer VertexBuffer {
+    Vertex vertex_inputs[];
 };
 
 layout(location = 0) out FragInput frag_inputs[];

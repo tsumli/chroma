@@ -20,6 +20,7 @@ pub mod layer;
 pub mod material;
 pub mod memory;
 pub mod pipeline_layout;
+pub mod raytracing_pipeline;
 pub mod render_pass;
 pub mod surface;
 pub mod swapchain;

@@ -46,6 +46,7 @@ pub struct Buffer {
     mapped_memory: *mut std::ffi::c_void,
     type_size: vk::DeviceSize,
     len: vk::DeviceSize,
+    device_address: Option<vk::DeviceAddress>,
 }
 
 impl Buffer {
@@ -67,7 +68,10 @@ impl Buffer {
 
         let buffer = unsafe { device.create_buffer(&create_info, None).unwrap() };
 
-        let mem_requirements = unsafe { device.get_buffer_memory_requirements(buffer) };
+        let mem_info = vk::BufferMemoryRequirementsInfo2::default().buffer(buffer);
+        let mut mem_requirements = vk::MemoryRequirements2::default();
+
+        unsafe { device.get_buffer_memory_requirements2(&mem_info, &mut mem_requirements) };
 
         let mut alloc_flags_info =
             if usage_flags.contains(vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS) {
@@ -79,7 +83,7 @@ impl Buffer {
             };
 
         let memory_type = find_memory_type(
-            mem_requirements.memory_type_bits,
+            mem_requirements.memory_requirements.memory_type_bits,
             memory_property_flags,
             physical_device,
             instance,
@@ -87,7 +91,7 @@ impl Buffer {
         .unwrap();
 
         let alloc_info = vk::MemoryAllocateInfo::default()
-            .allocation_size(mem_requirements.size)
+            .allocation_size(mem_requirements.memory_requirements.size)
             .memory_type_index(memory_type)
             .push_next(&mut alloc_flags_info);
 
@@ -114,6 +118,16 @@ impl Buffer {
             device.bind_buffer_memory(buffer, device_memory, 0).unwrap();
         }
 
+        let device_address = if usage_flags.contains(vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS) {
+            Some(unsafe {
+                device.get_buffer_device_address(
+                    &vk::BufferDeviceAddressInfo::default().buffer(buffer),
+                )
+            })
+        } else {
+            None
+        };
+
         Self {
             buffer,
             device,
@@ -122,6 +136,7 @@ impl Buffer {
             mapped_memory,
             type_size,
             len,
+            device_address,
         }
     }
 
@@ -152,8 +167,17 @@ impl Buffer {
         self.len
     }
 
+    pub fn type_size(&self) -> vk::DeviceSize {
+        self.type_size
+    }
+
     pub fn size(&self) -> vk::DeviceSize {
         self.type_size * self.len
+    }
+
+    pub fn device_address(&self) -> vk::DeviceAddress {
+        assert!(self.device_address.is_some());
+        self.device_address.unwrap()
     }
 }
 

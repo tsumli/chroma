@@ -1,3 +1,6 @@
+#ifndef FRAG_INPUT
+#define FRAG_INPUT
+
 struct FragInput {
     vec4 position_cs;
     vec4 position_ws;
@@ -7,3 +10,5 @@ struct FragInput {
     vec3 bitangent_ws;
     vec4 color;
 };
+
+#endif

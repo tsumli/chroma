@@ -2899,7 +2899,7 @@ impl DrawStrategy for Deferred {
                 .raygen
                 .device_address(),
             size: base_alignment as u64,
-            stride: handle_size_aligned as u64,
+            stride: base_alignment as u64,
         };
         let miss_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR {
             device_address: self.shadow_resource.shadow_shader_binding_tables[image_index as usize]

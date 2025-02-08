@@ -2894,33 +2894,27 @@ impl DrawStrategy for Deferred {
         }
 
         log::debug!("trace rays");
-        let raygen_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR::default()
-            .device_address(
-                self.shadow_resource.shadow_shader_binding_tables[image_index as usize]
-                    .raygen
-                    .device_address(),
-            )
-            .size(base_alignment as u64)
-            .stride(base_alignment as u64);
-
-        let miss_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR::default()
-            .device_address(
-                self.shadow_resource.shadow_shader_binding_tables[image_index as usize]
-                    .miss
-                    .device_address(),
-            )
-            .size(base_alignment as u64)
-            .stride(handle_size_aligned as u64);
-
-        let hit_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR::default()
-            .device_address(
-                self.shadow_resource.shadow_shader_binding_tables[image_index as usize]
-                    .hit
-                    .device_address(),
-            )
-            .size(base_alignment as u64)
-            .stride(handle_size_aligned as u64);
-
+        let raygen_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR {
+            device_address: self.shadow_resource.shadow_shader_binding_tables[image_index as usize]
+                .raygen
+                .device_address(),
+            size: base_alignment as u64,
+            stride: handle_size_aligned as u64,
+        };
+        let miss_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR {
+            device_address: self.shadow_resource.shadow_shader_binding_tables[image_index as usize]
+                .miss
+                .device_address(),
+            size: base_alignment as u64,
+            stride: handle_size_aligned as u64,
+        };
+        let hit_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR {
+            device_address: self.shadow_resource.shadow_shader_binding_tables[image_index as usize]
+                .hit
+                .device_address(),
+            size: base_alignment as u64,
+            stride: handle_size_aligned as u64,
+        };
         let callable_shader_binding_table = vk::StridedDeviceAddressRegionKHR::default();
         unsafe {
             let extent = self

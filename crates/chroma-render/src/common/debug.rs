@@ -7,6 +7,19 @@ use std::ffi::{
     CStr,
 };
 
+pub fn set_debug_name<T: ash::vk::Handle>(
+    device: ash::ext::debug_utils::Device,
+    handle: T,
+    name: &str,
+) {
+    let marker_info = vk::DebugUtilsObjectNameInfoEXT::default()
+        .object_name(CStr::from_bytes_with_nul(name.as_bytes()).unwrap())
+        .object_handle(handle);
+    unsafe {
+        device.set_debug_utils_object_name(&marker_info).unwrap();
+    }
+}
+
 /// the callback function used in Debug Utils.
 unsafe extern "system" fn vulkan_debug_utils_callback(
     message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,

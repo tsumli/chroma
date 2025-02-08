@@ -18,6 +18,7 @@ use crate::{
             end_single_time_command,
         },
         consts::MAX_FRAMES_IN_FLIGHT,
+        debug::set_debug_name,
         descriptor_pool,
         device::find_queue_family,
         image_buffer::ImageBuffer,
@@ -69,7 +70,6 @@ use chroma_scene::{
     },
 };
 use nalgebra_glm::{
-    Mat3x4,
     Vec2,
     Vec3,
     Vec4,
@@ -77,7 +77,6 @@ use nalgebra_glm::{
 use std::{
     collections::HashMap,
     ffi::CString,
-    primitive,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -104,12 +103,14 @@ struct SkyboxResources {
     pub skybox_texture: Texture,
 }
 
+#[derive(Clone)]
 pub struct AdditionalFunctions {
     pub buffer_device_address: ash::khr::buffer_device_address::Device,
     pub acceleration_structure: ash::khr::acceleration_structure::Device,
     pub raytracing_pipeline: ash::khr::ray_tracing_pipeline::Device,
     pub mesh_shader: ash::ext::mesh_shader::Device,
     pub get_physical_device_properties2: ash::khr::get_physical_device_properties2::Instance,
+    pub debug_utils: ash::ext::debug_utils::Device,
 }
 
 impl AdditionalFunctions {
@@ -121,12 +122,14 @@ impl AdditionalFunctions {
         let mesh_shader = ash::ext::mesh_shader::Device::new(instance, device);
         let get_physical_device_properties2 =
             ash::khr::get_physical_device_properties2::Instance::new(entry, instance);
+        let debug_utils = ash::ext::debug_utils::Device::new(instance, device);
         Self {
             buffer_device_address,
             acceleration_structure,
             raytracing_pipeline,
             mesh_shader,
             get_physical_device_properties2,
+            debug_utils,
         }
     }
 }
@@ -171,7 +174,6 @@ pub struct Deferred<'a> {
     shadow_pipeline_layouts: Vec<pipeline_layout::PipelineLayout>,
     shadow_render_targets: HashMap<ShadowRenderTarget, ImageBuffer>,
     raytracing_pipeline_props: PhysicalDeviceRayTracingPipelinePropertiesKHR<'a>,
-    _acceleration_structure_props: PhysicalDeviceAccelerationStructureFeaturesKHR<'a>,
     shadow_binding_tables: Vec<BindingTables>,
     _transform_buffers: Vec<Buffer>,
 }
@@ -1193,7 +1195,8 @@ impl Deferred<'_> {
                         .initial_layout(vk::ImageLayout::UNDEFINED)
                         .usage(
                             vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT
-                                | vk::ImageUsageFlags::SAMPLED,
+                                | vk::ImageUsageFlags::SAMPLED
+                                | vk::ImageUsageFlags::STORAGE,
                         )
                         .sharing_mode(vk::SharingMode::EXCLUSIVE)
                         .array_layers(1)
@@ -2043,7 +2046,7 @@ impl Deferred<'_> {
                     // depth
                     vk::DescriptorSetLayoutBinding::default()
                         .binding(3)
-                        .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
+                        .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
                         .descriptor_count(1)
                         .stage_flags(vk::ShaderStageFlags::COMPUTE),
                     // metallic_roughness
@@ -2067,7 +2070,7 @@ impl Deferred<'_> {
                     // skybox
                     vk::DescriptorSetLayoutBinding::default()
                         .binding(0)
-                        .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
+                        .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
                         .descriptor_count(1)
                         .stage_flags(vk::ShaderStageFlags::COMPUTE),
                 ]),
@@ -2088,10 +2091,14 @@ impl Deferred<'_> {
                     vk::DescriptorPoolSize::default()
                         .ty(vk::DescriptorType::SAMPLED_IMAGE)
                         .descriptor_count(MAX_FRAMES_IN_FLIGHT as u32),
-                    // color + normal + output + skybox + metallic_roughness + emissive
+                    // color + normal + output + metallic_roughness + emissive
                     vk::DescriptorPoolSize::default()
                         .ty(vk::DescriptorType::STORAGE_IMAGE)
-                        .descriptor_count((MAX_FRAMES_IN_FLIGHT as u32) * 6),
+                        .descriptor_count((MAX_FRAMES_IN_FLIGHT as u32) * 5),
+                    // skybox
+                    vk::DescriptorPoolSize::default()
+                        .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                        .descriptor_count((MAX_FRAMES_IN_FLIGHT as u32)),
                 ])
                 .flags(vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET),
             ash_device.clone(),
@@ -2154,7 +2161,7 @@ impl Deferred<'_> {
                         .unwrap()
                         .image_view(),
                 )
-                .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)];
+                .image_layout(vk::ImageLayout::GENERAL)];
             descriptor_writes.push(
                 vk::WriteDescriptorSet::default()
                     .dst_set(compute_descriptor_sets[frame_i].vk_descriptor_set(1))
@@ -2172,7 +2179,7 @@ impl Deferred<'_> {
                         .unwrap()
                         .image_view(),
                 )
-                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)];
+                .image_layout(vk::ImageLayout::GENERAL)];
             descriptor_writes.push(
                 vk::WriteDescriptorSet::default()
                     .dst_set(compute_descriptor_sets[frame_i].vk_descriptor_set(1))
@@ -2190,7 +2197,7 @@ impl Deferred<'_> {
                         .unwrap()
                         .image_view(),
                 )
-                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)];
+                .image_layout(vk::ImageLayout::GENERAL)];
             descriptor_writes.push(
                 vk::WriteDescriptorSet::default()
                     .dst_set(compute_descriptor_sets[frame_i].vk_descriptor_set(1))
@@ -2208,13 +2215,13 @@ impl Deferred<'_> {
                         .unwrap()
                         .image_view(),
                 )
-                .image_layout(vk::ImageLayout::DEPTH_READ_ONLY_OPTIMAL)];
+                .image_layout(vk::ImageLayout::GENERAL)];
             descriptor_writes.push(
                 vk::WriteDescriptorSet::default()
                     .dst_set(compute_descriptor_sets[frame_i].vk_descriptor_set(1))
                     .dst_binding(3)
                     .dst_array_element(0)
-                    .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
+                    .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
                     .image_info(&depth_image_info),
             );
 
@@ -2226,7 +2233,7 @@ impl Deferred<'_> {
                         .unwrap()
                         .image_view(),
                 )
-                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)];
+                .image_layout(vk::ImageLayout::GENERAL)];
             descriptor_writes.push(
                 vk::WriteDescriptorSet::default()
                     .dst_set(compute_descriptor_sets[frame_i].vk_descriptor_set(1))
@@ -2244,7 +2251,7 @@ impl Deferred<'_> {
                         .unwrap()
                         .image_view(),
                 )
-                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)];
+                .image_layout(vk::ImageLayout::GENERAL)];
             descriptor_writes.push(
                 vk::WriteDescriptorSet::default()
                     .dst_set(compute_descriptor_sets[frame_i].vk_descriptor_set(1))
@@ -2258,16 +2265,23 @@ impl Deferred<'_> {
             let skybox_image_info = if let Some(skybox_resources) = &skybox_resources {
                 [vk::DescriptorImageInfo::default()
                     .image_view(skybox_resources.skybox_texture.image_view())
-                    .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)]
+                    .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                    .sampler(create_texture_sampler(
+                        1,
+                        physical_device,
+                        ash_device.clone(),
+                        &instance,
+                        &entry,
+                    ))]
             } else {
-                [vk::DescriptorImageInfo::default()]
+                panic!("skybox resources not found");
             };
             descriptor_writes.push(
                 vk::WriteDescriptorSet::default()
                     .dst_set(compute_descriptor_sets[frame_i].vk_descriptor_set(2))
                     .dst_binding(0)
                     .dst_array_element(0)
-                    .descriptor_type(vk::DescriptorType::SAMPLED_IMAGE)
+                    .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
                     .image_info(&skybox_image_info),
             );
 
@@ -2486,9 +2500,16 @@ impl Deferred<'_> {
             let skybox_image_info = if let Some(skybox_resources) = &skybox_resources {
                 [vk::DescriptorImageInfo::default()
                     .image_view(skybox_resources.skybox_texture.image_view())
-                    .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)]
+                    .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                    .sampler(create_texture_sampler(
+                        1,
+                        physical_device,
+                        ash_device.clone(),
+                        &instance,
+                        &entry,
+                    ))]
             } else {
-                [vk::DescriptorImageInfo::default()]
+                panic!("skybox resources not found");
             };
             descriptor_writes.push(
                 vk::WriteDescriptorSet::default()
@@ -2503,7 +2524,7 @@ impl Deferred<'_> {
             let geometry_node_buffer_info = [vk::DescriptorBufferInfo::default()
                 .buffer(geometry_node_buffer.vk_buffer())
                 .offset(0)
-                .range(geometry_node_buffer.type_size() * geometry_node_buffer.len() as u64)];
+                .range(geometry_node_buffer.size() as u64)];
             descriptor_writes.push(
                 vk::WriteDescriptorSet::default()
                     .dst_set(shadow_descriptor_sets[frame_i].vk_descriptor_set(2))
@@ -2594,7 +2615,7 @@ impl Deferred<'_> {
                 .layout(shadow_pipeline_layouts[frame_i].vk_pipeline_layout())
                 .max_pipeline_ray_recursion_depth(2);
 
-            let raytracing_pipeline = common::raytracing_pipeline::RaytracingPipeline::new(
+            let shadow_pipeline = common::raytracing_pipeline::RaytracingPipeline::new(
                 &raytracing_pipeline_create_info,
                 ash_device.clone(),
                 additional_functions.raytracing_pipeline.clone(),
@@ -2604,7 +2625,7 @@ impl Deferred<'_> {
                 ash_device.destroy_shader_module(miss_shader_module, None);
                 ash_device.destroy_shader_module(closest_hit_shader_module, None);
             }
-            shadow_pipelines.push(raytracing_pipeline);
+            shadow_pipelines.push(shadow_pipeline);
         }
 
         log::info!("get raytracing props");
@@ -2619,20 +2640,6 @@ impl Deferred<'_> {
                     .get_physical_device_properties2(physical_device, &mut physical_device_props);
             }
             raytracing_pipeline_props
-        };
-
-        log::info!("get acceleration structure props");
-        let acceleration_structure_props = {
-            let mut acceleration_structure_props =
-                PhysicalDeviceAccelerationStructureFeaturesKHR::default();
-            let mut physical_device_features =
-                vk::PhysicalDeviceFeatures2::default().push_next(&mut acceleration_structure_props);
-            unsafe {
-                additional_functions
-                    .get_physical_device_properties2
-                    .get_physical_device_features2(physical_device, &mut physical_device_features);
-            }
-            acceleration_structure_props
         };
 
         log::info!("create shader binding table");
@@ -2750,7 +2757,6 @@ impl Deferred<'_> {
             _top_level_acceleration_structure_handle: top_level_acceleration_structure_handle,
             shadow_render_targets,
             raytracing_pipeline_props,
-            _acceleration_structure_props: acceleration_structure_props,
             shadow_binding_tables,
             _transform_buffers: transform_buffers,
         })
@@ -2761,14 +2767,14 @@ impl DrawStrategy for Deferred<'_> {
     fn draw(&self, command_buffer: vk::CommandBuffer, image_index: u32) -> Result<()> {
         let device = &self.ash_device;
 
-        log::info!("Draw shadow pass");
+        log::debug!("Draw shadow pass");
         let handle_size = self.raytracing_pipeline_props.shader_group_handle_size;
         let handle_size_aligned = math::align_up(
             handle_size,
             self.raytracing_pipeline_props.shader_group_base_alignment,
         );
 
-        log::info!("bind pipeline");
+        log::debug!("bind pipeline");
         unsafe {
             device.cmd_bind_pipeline(
                 command_buffer,
@@ -2777,7 +2783,7 @@ impl DrawStrategy for Deferred<'_> {
             );
         }
 
-        log::info!("bind descriptor sets");
+        log::debug!("bind descriptor sets");
         unsafe {
             device.cmd_bind_descriptor_sets(
                 command_buffer,
@@ -2789,7 +2795,7 @@ impl DrawStrategy for Deferred<'_> {
             );
         }
 
-        log::info!("trace rays");
+        log::debug!("trace rays");
         let raygen_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR::default()
             .device_address(unsafe {
                 self.additional_functions
@@ -2856,7 +2862,7 @@ impl DrawStrategy for Deferred<'_> {
                 );
         }
 
-        log::info!("draw deferred rendering");
+        log::debug!("draw deferred rendering");
 
         let clear_values = [
             // color
@@ -2927,7 +2933,7 @@ impl DrawStrategy for Deferred<'_> {
                 .len(),
             1
         );
-        log::info!("bind pipeline");
+        log::debug!("bind pipeline");
         unsafe {
             device.cmd_bind_pipeline(
                 command_buffer,
@@ -2936,7 +2942,7 @@ impl DrawStrategy for Deferred<'_> {
             );
         }
 
-        log::info!("set viewport and scissor");
+        log::debug!("set viewport and scissor");
         let scissors = [vk::Rect2D {
             offset: vk::Offset2D { x: 0, y: 0 },
             extent: vk::Extent2D {
@@ -2956,7 +2962,7 @@ impl DrawStrategy for Deferred<'_> {
             device.cmd_set_viewport(command_buffer, 0, &viewports);
         }
 
-        log::info!("draw primitives");
+        log::debug!("draw primitives");
         for primitive_i in 0..self.meshlet_buffers.len() {
             let set_indices = primitive_i * NUM_GRAPHICS_DESCRIPTOR_SETS
                 ..(primitive_i + 1) * NUM_GRAPHICS_DESCRIPTOR_SETS;
@@ -2981,13 +2987,13 @@ impl DrawStrategy for Deferred<'_> {
             }
         }
 
-        log::info!("end render pass");
+        log::debug!("end render pass");
         unsafe {
             device.cmd_end_render_pass(command_buffer);
         }
 
         {
-            log::info!("color/depth: write -> read");
+            log::debug!("color/depth: write -> read");
             let barriers = [
                 // color: write -> read
                 vk::ImageMemoryBarrier2::default()
@@ -3030,7 +3036,7 @@ impl DrawStrategy for Deferred<'_> {
             }
         }
 
-        log::info!("draw deferred pass");
+        log::debug!("draw deferred pass");
         unsafe {
             device.cmd_bind_pipeline(
                 command_buffer,
@@ -3059,7 +3065,7 @@ impl DrawStrategy for Deferred<'_> {
         }
 
         {
-            log::info!("depth: read -> write");
+            log::debug!("depth: read -> write");
             let barriers = [
                 // depth: read -> write
                 vk::ImageMemoryBarrier2::default()

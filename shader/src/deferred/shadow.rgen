@@ -9,7 +9,7 @@
 #include "random.glsl"
 
 layout(set = 0, binding = 0) uniform accelerationStructureEXT tlas;
-layout(set = 0, binding = 1) uniform transform_ubo {
+layout(set = 0, binding = 1) uniform TransformUbo {
     TransformParams transform;
 };
 
@@ -41,8 +41,8 @@ void main() {
     vec3 result_color = vec3(0);
     ray_payload.color = vec3(1);
 
-    traceRayEXT(tlas, gl_RayFlagsOpaqueEXT, 0xff, 0, 0, 0, origin.xyz, t_min, direction.xyz,
-        t_max, 0);
+    // traceRayEXT(tlas, gl_RayFlagsOpaqueEXT, 0xff, 0, 0, 0, origin.xyz, t_min, direction.xyz,
+    //     t_max, 0);
 
     // for (int sample_i = 0; sample_i < num_samples; sample_i++) {
     //     for (int i = 0; i < kMaxRecursion; i++) {

@@ -4,10 +4,10 @@
 #include "brdf.glsl"
 #include "common.glsl"
 
-layout(set = 0, binding = 0) uniform ubo_transform {
+layout(set = 0, binding = 0) uniform TransformUbo {
     TransformParams transform;
 };
-layout(set = 0, binding = 1) uniform ubo_camera {
+layout(set = 0, binding = 1) uniform CameraUbo {
     CameraParams camera;
 };
 

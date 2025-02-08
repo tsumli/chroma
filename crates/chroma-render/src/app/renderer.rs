@@ -336,7 +336,7 @@ impl Renderer<'_> {
             fps
         };
 
-        log::info!("get next image");
+        log::debug!("get next image");
         let (image_index, _is_sub_optimal) = unsafe {
             self.swapchain
                 .swapchain_loader()
@@ -350,7 +350,7 @@ impl Renderer<'_> {
         };
         let command_buffer = self.command_buffers[image_index as usize];
 
-        log::info!("updating camera");
+        log::debug!("updating camera");
         self.camera.input_control(
             control,
             PhysicalPosition::new(
@@ -360,21 +360,21 @@ impl Renderer<'_> {
             self.timer.get_elapsed(),
         );
 
-        log::info!("update uniform buffer");
+        log::debug!("update uniform buffer");
         let transform_params = self.camera.create_transform_params();
         self.transform_ubo
             .update(image_index as usize, transform_params);
         let camera_params = self.camera.create_camera_params();
         self.camera_ubo.update(image_index as usize, camera_params);
 
-        log::info!("reset command buffer");
+        log::debug!("reset command buffer");
         unsafe {
             device
                 .reset_command_buffer(command_buffer, vk::CommandBufferResetFlags::default())
                 .unwrap();
         }
 
-        log::info!("begin command buffers");
+        log::debug!("begin command buffers");
         let command_buffer_begin_info = vk::CommandBufferBeginInfo::default();
         unsafe {
             device
@@ -388,7 +388,7 @@ impl Renderer<'_> {
             .unwrap();
 
         // copy output to output render target
-        log::info!("transition image layout");
+        log::debug!("transition image layout");
         let barriers = [
             // Transition draw render target
             vk::ImageMemoryBarrier2::default()
@@ -429,7 +429,7 @@ impl Renderer<'_> {
         }
 
         // copy output to swapchain
-        log::info!("copy draw output to output render target");
+        log::debug!("copy draw output to output render target");
         let image_copy = [vk::ImageCopy2::default()
             .src_subresource(vk::ImageSubresourceLayers {
                 aspect_mask: vk::ImageAspectFlags::COLOR,
@@ -459,7 +459,7 @@ impl Renderer<'_> {
             device.cmd_copy_image2(command_buffer, &copy_image_info);
         }
 
-        log::info!("transition image layout");
+        log::debug!("transition image layout");
         let barriers = [
             // Transition output render target
             vk::ImageMemoryBarrier2::default()
@@ -500,7 +500,7 @@ impl Renderer<'_> {
         }
 
         // imgui pass
-        log::info!("imgui pass");
+        log::debug!("imgui pass");
         let render_pass_begin_info = vk::RenderPassBeginInfo::default()
             .render_pass(self.imgui_render_pass.vk_render_pass())
             .framebuffer(
@@ -563,13 +563,13 @@ impl Renderer<'_> {
             .unwrap();
 
         // end render pass
-        log::info!("end render pass");
+        log::debug!("end render pass");
         unsafe {
             device.cmd_end_render_pass(command_buffer);
         }
 
-        log::info!("output: color attachment -> transfer src");
-        log::info!("swapchain: present src -> color attachment");
+        log::debug!("output: color attachment -> transfer src");
+        log::debug!("swapchain: present src -> color attachment");
         let barriers = [
             // output
             vk::ImageMemoryBarrier2::default()
@@ -610,7 +610,7 @@ impl Renderer<'_> {
         }
 
         // copy output to swapchain
-        log::info!("copy output to swapchain");
+        log::debug!("copy output to swapchain");
         let image_copy = [vk::ImageCopy2::default()
             .src_subresource(vk::ImageSubresourceLayers {
                 aspect_mask: vk::ImageAspectFlags::COLOR,
@@ -640,8 +640,8 @@ impl Renderer<'_> {
             device.cmd_copy_image2(command_buffer, &copy_image_info);
         }
 
-        log::info!("output: transfer read -> color attachment");
-        log::info!("swapchain: transfer write -> present src");
+        log::debug!("output: transfer read -> color attachment");
+        log::debug!("swapchain: transfer write -> present src");
         let barriers = [
             // output
             vk::ImageMemoryBarrier2::default()
@@ -681,11 +681,11 @@ impl Renderer<'_> {
             device.cmd_pipeline_barrier2(command_buffer, &dependency_info);
         }
 
-        log::info!("end command buffer");
+        log::debug!("end command buffer");
         unsafe {
             device.end_command_buffer(command_buffer).unwrap();
         }
-        log::info!("submit command buffer");
+        log::debug!("submit command buffer");
         let command_buffer_infos =
             [CommandBufferSubmitInfo::default().command_buffer(command_buffer)];
         let signal_semaphore = self.sync_objects.render_finished_semaphores()[image_index as usize];
@@ -717,7 +717,7 @@ impl Renderer<'_> {
             .swapchains(&swapchains)
             .image_indices(&image_indices);
 
-        log::info!("presenting...");
+        log::debug!("presenting...");
         unsafe {
             self.swapchain
                 .swapchain_loader()
@@ -726,7 +726,7 @@ impl Renderer<'_> {
         };
 
         // wait
-        log::info!("wait for fences");
+        log::debug!("wait for fences");
         let wait_fences = vec![self.sync_objects.inflight_fences()[image_index as usize]];
         unsafe {
             device
@@ -734,7 +734,7 @@ impl Renderer<'_> {
                 .unwrap();
         }
 
-        log::info!("reset fences");
+        log::debug!("reset fences");
         unsafe {
             device.reset_fences(&wait_fences).unwrap();
         }

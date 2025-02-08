@@ -12,10 +12,10 @@
 hitAttributeEXT vec2 attribs;
 
 layout(set = 0, binding = 0) uniform accelerationStructureEXT tlas;
-layout(set = 0, binding = 1) uniform ubo_transform {
+layout(set = 0, binding = 1) uniform TransformUbo {
     TransformParams transform;
 };
-layout(set = 0, binding = 1) uniform ubo_camera {
+layout(set = 0, binding = 1) uniform CameraUbo {
     CameraParams camera;
 };
 layout(set = 2, binding = 0) buffer GeometryNodes {

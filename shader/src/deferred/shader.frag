@@ -6,7 +6,7 @@
 #include "common.glsl"
 
 // uniform
-layout(set = 1, binding = 0) uniform material_ubo {
+layout(set = 1, binding = 0) uniform MaterialUbo {
     MaterialParams material;
 };
 

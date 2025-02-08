@@ -13,7 +13,7 @@ use std::{
     ffi::CStr,
 };
 
-const DEVICE_EXTENSIONS: [&CStr; 12] = [
+const DEVICE_EXTENSIONS: [&CStr; 13] = [
     ash::khr::swapchain::NAME,
     ash::ext::robustness2::NAME,
     ash::khr::deferred_host_operations::NAME,
@@ -26,6 +26,7 @@ const DEVICE_EXTENSIONS: [&CStr; 12] = [
     ash::khr::buffer_device_address::NAME,
     ash::ext::descriptor_indexing::NAME,
     ash::khr::synchronization2::NAME,
+    ash::ext::debug_marker::NAME,
 ];
 
 pub fn pick_physical_device(

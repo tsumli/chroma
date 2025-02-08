@@ -18,7 +18,6 @@ use crate::{
             end_single_time_command,
         },
         consts::MAX_FRAMES_IN_FLIGHT,
-        debug::set_debug_name,
         descriptor_pool,
         device::find_queue_family,
         image_buffer::ImageBuffer,
@@ -56,14 +55,12 @@ use ash::vk::{
     self,
     ImageSubresourceRange,
     Packed24_8,
-    PhysicalDeviceAccelerationStructureFeaturesKHR,
     PhysicalDeviceRayTracingPipelinePropertiesKHR,
     PipelineStageFlags2,
 };
 use chroma_base::path::get_shader_spv_root;
 use chroma_scene::{
     cubemap::CubeFace,
-    image,
     model::{
         Model,
         ModelTrait as _,
@@ -2037,7 +2034,7 @@ impl Deferred<'_> {
                     // skybox
                     vk::DescriptorPoolSize::default()
                         .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                        .descriptor_count((MAX_FRAMES_IN_FLIGHT as u32)),
+                        .descriptor_count(MAX_FRAMES_IN_FLIGHT as u32),
                 ])
                 .flags(vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET),
             ash_device.clone(),

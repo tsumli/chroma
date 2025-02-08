@@ -18,3 +18,8 @@ cargo run --release --example render --manifest-path ./crates/chroma-render/Carg
 - A/D: Left/Right
 - E/Q: Up/Down
 - Esc: quit
+
+## Features
+- [x] Deferred rendering
+- [x] Mesh shader
+- [x] Raytraced shadow

@@ -166,8 +166,8 @@ pub struct Deferred<'a> {
     additional_functions: AdditionalFunctions,
     _bottom_level_acceleration_structures: Vec<common::buffer::Buffer>,
     _bottom_level_acceleration_structure_handles: Vec<vk::AccelerationStructureKHR>,
-    _top_level_acceleration_structure: Option<common::buffer::Buffer>,
-    _top_level_acceleration_structure_handle: Option<vk::AccelerationStructureKHR>,
+    _top_level_acceleration_structure: common::buffer::Buffer,
+    _top_level_acceleration_structure_handle: vk::AccelerationStructureKHR,
     _shadow_descriptor_pool: descriptor_pool::DescriptorPool,
     shadow_descriptor_sets: Vec<common::descriptor_set::DescriptorSet>,
     shadow_pipelines: Vec<common::raytracing_pipeline::RaytracingPipeline>,
@@ -232,9 +232,6 @@ impl Deferred<'_> {
         let mut bottom_level_acceleration_structures = Vec::new();
         let mut bottom_level_acceleration_structure_handles = Vec::new();
         let mut bottom_level_acceleration_structure_device_addresses = Vec::new();
-        let mut top_level_acceleration_structure = None;
-        let mut top_level_acceleration_structure_handle = None;
-        let mut top_level_acceleration_structure_device_address = None;
         for model in scene.models.iter() {
             match model {
                 Model::Gltf(gltf_adapter) => {
@@ -853,7 +850,11 @@ impl Deferred<'_> {
         );
 
         log::info!("creating top-level acceleration structure");
-        {
+        let (
+            top_level_acceleration_structure,
+            top_level_acceleration_structure_handle,
+            top_level_acceleration_structure_device_address,
+        ) = {
             let mut instances = Vec::new();
             for address in &bottom_level_acceleration_structure_device_addresses {
                 let instance = vk::AccelerationStructureInstanceKHR {
@@ -940,7 +941,6 @@ impl Deferred<'_> {
                     .acceleration_structure
                     .create_acceleration_structure(&acceleration_structure_create_info, None)?
             };
-            top_level_acceleration_structure_handle = Some(handle);
 
             let scratch_buffer = common::buffer::Buffer::new(
                 std::ptr::null(),
@@ -1005,17 +1005,16 @@ impl Deferred<'_> {
                 ash_device.clone(),
             );
 
-            top_level_acceleration_structure = Some(acceleration_structure);
-
-            top_level_acceleration_structure_device_address = Some(unsafe {
+            let device_address = unsafe {
                 additional_functions
                     .acceleration_structure
                     .get_acceleration_structure_device_address(
                         &vk::AccelerationStructureDeviceAddressInfoKHR::default()
                             .acceleration_structure(handle),
                     )
-            });
-        }
+            };
+            (acceleration_structure, handle, device_address)
+        };
 
         let primitive_size = base_color_textures.len();
 
@@ -2409,7 +2408,7 @@ impl Deferred<'_> {
             let mut descriptor_writes = Vec::new();
 
             // TLAS
-            let tlas_handles = [top_level_acceleration_structure_handle.unwrap()];
+            let tlas_handles = [top_level_acceleration_structure_handle];
             let mut tlas_info = vk::WriteDescriptorSetAccelerationStructureKHR::default()
                 .acceleration_structures(&tlas_handles);
             descriptor_writes.push(

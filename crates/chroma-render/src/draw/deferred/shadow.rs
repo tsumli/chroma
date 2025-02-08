@@ -1,7 +1,4 @@
-use super::raytracing::{
-    GeometryNode,
-    ShaderBindingTable,
-};
+use super::raytracing::ShaderBindingTable;
 use crate::common::{
     descriptor_pool::DescriptorPool,
     descriptor_set::DescriptorSet,
@@ -9,7 +6,6 @@ use crate::common::{
     pipeline_layout::PipelineLayout,
     raytracing_pipeline::RaytracingPipeline,
 };
-use ash::vk;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

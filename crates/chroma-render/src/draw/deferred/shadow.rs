@@ -1,4 +1,7 @@
-use super::raytracing::ShaderBindingTable;
+use super::raytracing::{
+    GeometryNode,
+    ShaderBindingTable,
+};
 use crate::common::{
     descriptor_pool::DescriptorPool,
     descriptor_set::DescriptorSet,
@@ -23,6 +26,8 @@ pub struct ShadowResource {
     pub _top_level_acceleration_structure: crate::common::buffer::Buffer,
     pub _top_level_acceleration_structure_handle: vk::AccelerationStructureKHR,
     pub _shadow_descriptor_pool: DescriptorPool,
+    pub _geometry_nodes: Vec<GeometryNode>,
+    pub _geometry_node_buffer: crate::common::buffer::Buffer,
     pub shadow_descriptor_sets: Vec<DescriptorSet>,
     pub shadow_pipelines: Vec<RaytracingPipeline>,
     pub shadow_pipeline_layouts: Vec<PipelineLayout>,

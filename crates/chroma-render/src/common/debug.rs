@@ -7,6 +7,7 @@ use std::ffi::{
     CStr,
 };
 
+#[allow(dead_code)]
 pub fn set_debug_name<T: ash::vk::Handle>(
     device: ash::ext::debug_utils::Device,
     handle: T,
@@ -40,6 +41,13 @@ unsafe extern "system" fn vulkan_debug_utils_callback(
             log::debug!("{} {:?}", types, message)
         }
         vk::DebugUtilsMessageSeverityFlagsEXT::WARNING => {
+            // suppress spamming warning
+            if message
+                .to_string_lossy()
+                .contains("BestPractices-vkAllocateMemory-small-allocation")
+            {
+                return vk::FALSE;
+            }
             log::warn!("{} {:?}", types, message)
         }
         vk::DebugUtilsMessageSeverityFlagsEXT::ERROR => {

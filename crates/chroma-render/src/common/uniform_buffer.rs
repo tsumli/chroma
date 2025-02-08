@@ -47,7 +47,7 @@ impl<T> UniformBuffer<T> {
         self.buffers[frame_index].update_buffer(&data as *const _ as *const std::ffi::c_void);
     }
 
-    pub fn get_type_size(&self) -> vk::DeviceSize {
+    pub fn type_size(&self) -> vk::DeviceSize {
         std::mem::size_of::<T>() as vk::DeviceSize
     }
 }

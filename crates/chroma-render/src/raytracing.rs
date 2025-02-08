@@ -1,1 +1,1 @@
-pub mod raytracing;
+pub(crate) mod properties;

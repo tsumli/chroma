@@ -10,6 +10,7 @@ pub mod descriptor_set;
 pub mod descriptor_set_layout;
 pub mod device;
 pub mod extension;
+pub mod extra_functions;
 pub mod framebuffer;
 pub mod graphics_pipeline;
 pub mod image_buffer;

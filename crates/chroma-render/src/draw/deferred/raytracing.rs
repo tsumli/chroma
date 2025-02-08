@@ -1,6 +1,7 @@
 use crate::common::buffer::Buffer;
 use ash::vk;
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct GeometryNode {
     pub vertex_buffer_device_address: vk::DeviceAddress,
@@ -8,7 +9,7 @@ pub struct GeometryNode {
 }
 
 #[derive(Clone)]
-pub struct BindingTables {
+pub struct ShaderBindingTable {
     pub raygen: Buffer,
     pub hit: Buffer,
     pub miss: Buffer,

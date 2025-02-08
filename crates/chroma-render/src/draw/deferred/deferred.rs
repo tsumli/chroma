@@ -1,6 +1,10 @@
-use super::raytracing::{
-    BindingTables,
-    GeometryNode,
+use super::{
+    raytracing::{
+        GeometryNode,
+        ShaderBindingTable,
+    },
+    shadow::ShadowResource,
+    skybox::SkyboxResources,
 };
 use crate::{
     common::{
@@ -18,9 +22,9 @@ use crate::{
             end_single_time_command,
         },
         consts::MAX_FRAMES_IN_FLIGHT,
-        debug::set_debug_name,
         descriptor_pool,
         device::find_queue_family,
+        extra_functions::ExtraFunctions,
         image_buffer::ImageBuffer,
         index::Index,
         material::MaterialParams,
@@ -31,9 +35,16 @@ use crate::{
         vertex::Vertex,
     },
     draw::{
-        deferred::raytracing::create_identity_transform_matrix,
+        deferred::{
+            raytracing::create_identity_transform_matrix,
+            shadow::{
+                ShadowRenderTarget,
+                NUM_SHADOW_DESCRIPTOR_SETS,
+            },
+        },
         strategy::DrawStrategy,
     },
+    raytracing::properties::RaytracingPipelineProperties,
     shader::shader::{
         create_shader_module,
         read_shader_code,
@@ -43,7 +54,10 @@ use crate::{
         texture_sampler::create_texture_sampler,
     },
     utils::{
-        math,
+        math::{
+            self,
+            div_up,
+        },
         tangent::compute_tangent,
     },
 };
@@ -56,14 +70,12 @@ use ash::vk::{
     self,
     ImageSubresourceRange,
     Packed24_8,
-    PhysicalDeviceAccelerationStructureFeaturesKHR,
     PhysicalDeviceRayTracingPipelinePropertiesKHR,
     PipelineStageFlags2,
 };
 use chroma_base::path::get_shader_spv_root;
 use chroma_scene::{
     cubemap::CubeFace,
-    image,
     model::{
         Model,
         ModelTrait as _,
@@ -89,52 +101,11 @@ enum GraphicsRenderTarget {
     Emissive,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-enum ShadowRenderTarget {
-    Output,
-}
-
 const NUM_GRAPHICS_DESCRIPTOR_SETS: usize = 2;
 const NUM_COMPUTE_DESCRIPTOR_SETS: usize = 3;
-const NUM_SHADOW_DESCRIPTOR_SETS: usize = 3;
 const MIP_LEVEL: u32 = 3;
 
-struct SkyboxResources {
-    pub skybox_texture: Texture,
-}
-
-#[derive(Clone)]
-pub struct AdditionalFunctions {
-    pub buffer_device_address: ash::khr::buffer_device_address::Device,
-    pub acceleration_structure: ash::khr::acceleration_structure::Device,
-    pub raytracing_pipeline: ash::khr::ray_tracing_pipeline::Device,
-    pub mesh_shader: ash::ext::mesh_shader::Device,
-    pub get_physical_device_properties2: ash::khr::get_physical_device_properties2::Instance,
-    pub debug_utils: ash::ext::debug_utils::Device,
-}
-
-impl AdditionalFunctions {
-    pub fn new(entry: &ash::Entry, instance: &ash::Instance, device: &ash::Device) -> Self {
-        let buffer_device_address = ash::khr::buffer_device_address::Device::new(instance, device);
-        let acceleration_structure =
-            ash::khr::acceleration_structure::Device::new(instance, device);
-        let raytracing_pipeline = ash::khr::ray_tracing_pipeline::Device::new(instance, device);
-        let mesh_shader = ash::ext::mesh_shader::Device::new(instance, device);
-        let get_physical_device_properties2 =
-            ash::khr::get_physical_device_properties2::Instance::new(entry, instance);
-        let debug_utils = ash::ext::debug_utils::Device::new(instance, device);
-        Self {
-            buffer_device_address,
-            acceleration_structure,
-            raytracing_pipeline,
-            mesh_shader,
-            get_physical_device_properties2,
-            debug_utils,
-        }
-    }
-}
-
-pub struct Deferred<'a> {
+pub struct Deferred {
     _transform_ubo: uniform_buffer::UniformBuffer<TransformParams>,
     _camera_ubo: uniform_buffer::UniformBuffer<CameraParams>,
     _material_ubo: Vec<uniform_buffer::UniformBuffer<common::material::MaterialParams>>,
@@ -144,8 +115,6 @@ pub struct Deferred<'a> {
     _normal_textures: Vec<Texture>,
     _emissive_textures: Vec<Texture>,
     _metallic_roughness_textures: Vec<Texture>,
-    _geometry_nodes: Vec<GeometryNode>,
-    _geometry_node_buffer: common::buffer::Buffer,
     graphics_framebuffers: Vec<common::framebuffer::Framebuffer>,
     _command_pool: common::command_pool::CommandPool,
     ash_device: ash::Device,
@@ -163,22 +132,12 @@ pub struct Deferred<'a> {
     meshlet_buffers: Vec<common::buffer::Buffer>,
     _meshlet_vertices_buffers: Vec<common::buffer::Buffer>,
     _meshlet_triangle_buffers: Vec<common::buffer::Buffer>,
-    additional_functions: AdditionalFunctions,
-    _bottom_level_acceleration_structures: Vec<common::buffer::Buffer>,
-    _bottom_level_acceleration_structure_handles: Vec<vk::AccelerationStructureKHR>,
-    _top_level_acceleration_structure: Option<common::buffer::Buffer>,
-    _top_level_acceleration_structure_handle: Option<vk::AccelerationStructureKHR>,
-    _shadow_descriptor_pool: descriptor_pool::DescriptorPool,
-    shadow_descriptor_sets: Vec<common::descriptor_set::DescriptorSet>,
-    shadow_pipelines: Vec<common::raytracing_pipeline::RaytracingPipeline>,
-    shadow_pipeline_layouts: Vec<pipeline_layout::PipelineLayout>,
-    shadow_render_targets: HashMap<ShadowRenderTarget, ImageBuffer>,
-    raytracing_pipeline_props: PhysicalDeviceRayTracingPipelinePropertiesKHR<'a>,
-    shadow_binding_tables: Vec<BindingTables>,
-    _transform_buffers: Vec<Buffer>,
+    extra_functions: ExtraFunctions,
+    shadow_resource: ShadowResource,
+    raytracing_pipeline_props: RaytracingPipelineProperties,
 }
 
-impl Deferred<'_> {
+impl Deferred {
     pub fn new(
         transform_ubo: uniform_buffer::UniformBuffer<TransformParams>,
         camera_ubo: uniform_buffer::UniformBuffer<CameraParams>,
@@ -191,7 +150,7 @@ impl Deferred<'_> {
         entry: ash::Entry,
     ) -> Result<Self> {
         log::info!("setup additional functions");
-        let additional_functions = AdditionalFunctions::new(&entry, &instance, &ash_device);
+        let extra_functions = ExtraFunctions::new(&entry, &instance, &ash_device);
 
         log::info!("creating graphics queues");
         let family_indices = find_queue_family(&instance, physical_device, surface)?;
@@ -232,9 +191,6 @@ impl Deferred<'_> {
         let mut bottom_level_acceleration_structures = Vec::new();
         let mut bottom_level_acceleration_structure_handles = Vec::new();
         let mut bottom_level_acceleration_structure_device_addresses = Vec::new();
-        let mut top_level_acceleration_structure = None;
-        let mut top_level_acceleration_structure_handle = None;
-        let mut top_level_acceleration_structure_device_address = None;
         for model in scene.models.iter() {
             match model {
                 Model::Gltf(gltf_adapter) => {
@@ -365,43 +321,17 @@ impl Deferred<'_> {
                                 vk::AccelerationStructureGeometryTrianglesDataKHR::default()
                                     .vertex_format(vk::Format::R32G32B32_SFLOAT)
                                     .vertex_data(vk::DeviceOrHostAddressConstKHR {
-                                        device_address: unsafe {
-                                            additional_functions
-                                                .buffer_device_address
-                                                .get_buffer_device_address(
-                                                    &vk::BufferDeviceAddressInfoKHR::default()
-                                                        .buffer(
-                                                            vertex_buffers[primitive_i].vk_buffer(),
-                                                        ),
-                                                )
-                                        },
+                                        device_address: vertex_buffers[primitive_i]
+                                            .device_address(),
                                     })
                                     .vertex_stride(std::mem::size_of::<Vertex>() as u64)
                                     .index_type(vk::IndexType::UINT32)
                                     .index_data(vk::DeviceOrHostAddressConstKHR {
-                                        device_address: unsafe {
-                                            additional_functions
-                                                .buffer_device_address
-                                                .get_buffer_device_address(
-                                                    &vk::BufferDeviceAddressInfoKHR::default()
-                                                        .buffer(
-                                                            index_buffers[primitive_i].vk_buffer(),
-                                                        ),
-                                                )
-                                        },
+                                        device_address: index_buffers[primitive_i].device_address(),
                                     })
                                     .transform_data(vk::DeviceOrHostAddressConstKHR {
-                                        device_address: unsafe {
-                                            additional_functions
-                                                .buffer_device_address
-                                                .get_buffer_device_address(
-                                                    &vk::BufferDeviceAddressInfoKHR::default()
-                                                        .buffer(
-                                                            transform_buffers[primitive_i]
-                                                                .vk_buffer(),
-                                                        ),
-                                                )
-                                        },
+                                        device_address: transform_buffers[primitive_i]
+                                            .device_address(),
                                     });
 
                             let geometries = vec![vk::AccelerationStructureGeometryKHR::default()
@@ -410,22 +340,10 @@ impl Deferred<'_> {
                                 .flags(vk::GeometryFlagsKHR::OPAQUE)];
 
                             let geometry_node = GeometryNode {
-                                vertex_buffer_device_address: unsafe {
-                                    additional_functions
-                                        .buffer_device_address
-                                        .get_buffer_device_address(
-                                            &vk::BufferDeviceAddressInfoKHR::default()
-                                                .buffer(vertex_buffers[primitive_i].vk_buffer()),
-                                        )
-                                },
-                                index_buffer_device_address: unsafe {
-                                    additional_functions
-                                        .buffer_device_address
-                                        .get_buffer_device_address(
-                                            &vk::BufferDeviceAddressInfoKHR::default()
-                                                .buffer(index_buffers[primitive_i].vk_buffer()),
-                                        )
-                                },
+                                vertex_buffer_device_address: vertex_buffers[primitive_i]
+                                    .device_address(),
+                                index_buffer_device_address: index_buffers[primitive_i]
+                                    .device_address(),
                             };
                             geometry_nodes.push(geometry_node);
 
@@ -444,7 +362,7 @@ impl Deferred<'_> {
                             ensure!(index_buffers[primitive_i].len() % 3 == 0);
                             let num_triangles = index_buffers[primitive_i].len() as u32 / 3;
                             unsafe {
-                                additional_functions
+                                extra_functions
                                     .acceleration_structure
                                     .get_acceleration_structure_build_sizes(
                                         vk::AccelerationStructureBuildTypeKHR::default(),
@@ -483,7 +401,7 @@ impl Deferred<'_> {
                                             .acceleration_structure_size,
                                     );
                             let handle = unsafe {
-                                additional_functions
+                                extra_functions
                                     .acceleration_structure
                                     .create_acceleration_structure(
                                         &acceleration_structure_create_info,
@@ -525,14 +443,7 @@ impl Deferred<'_> {
                                     )
                                     .geometries(&geometries)
                                     .scratch_data(vk::DeviceOrHostAddressKHR {
-                                        device_address: unsafe {
-                                            additional_functions
-                                                .buffer_device_address
-                                                .get_buffer_device_address(
-                                                    &vk::BufferDeviceAddressInfoKHR::default()
-                                                        .buffer(scratch_buffer.vk_buffer()),
-                                                )
-                                        },
+                                        device_address: scratch_buffer.device_address(),
                                     });
 
                             let range_info = vk::AccelerationStructureBuildRangeInfoKHR::default()
@@ -547,7 +458,7 @@ impl Deferred<'_> {
                                 ash_device.clone(),
                             );
                             unsafe {
-                                additional_functions
+                                extra_functions
                                     .acceleration_structure
                                     .cmd_build_acceleration_structures(
                                         command_buffer,
@@ -563,7 +474,7 @@ impl Deferred<'_> {
                             );
 
                             let acceleration_device_address = unsafe {
-                                additional_functions
+                                extra_functions
                                     .acceleration_structure
                                     .get_acceleration_structure_device_address(
                                         &vk::AccelerationStructureDeviceAddressInfoKHR::default()
@@ -898,7 +809,11 @@ impl Deferred<'_> {
         );
 
         log::info!("creating top-level acceleration structure");
-        {
+        let (
+            top_level_acceleration_structure,
+            top_level_acceleration_structure_handle,
+            _top_level_acceleration_structure_device_address,
+        ) = {
             let mut instances = Vec::new();
             for address in &bottom_level_acceleration_structure_device_addresses {
                 let instance = vk::AccelerationStructureInstanceKHR {
@@ -931,14 +846,7 @@ impl Deferred<'_> {
             geo.instances = vk::AccelerationStructureGeometryInstancesDataKHR::default()
                 .array_of_pointers(false)
                 .data(vk::DeviceOrHostAddressConstKHR {
-                    device_address: unsafe {
-                        additional_functions
-                            .buffer_device_address
-                            .get_buffer_device_address(
-                                &vk::BufferDeviceAddressInfoKHR::default()
-                                    .buffer(instance_buffer.vk_buffer()),
-                            )
-                    },
+                    device_address: instance_buffer.device_address(),
                 });
 
             let acceleration_structure_geometries =
@@ -958,7 +866,7 @@ impl Deferred<'_> {
                 vk::AccelerationStructureBuildSizesInfoKHR::default();
             let primitive_count = instances.len() as u32;
             unsafe {
-                additional_functions
+                extra_functions
                     .acceleration_structure
                     .get_acceleration_structure_build_sizes(
                         vk::AccelerationStructureBuildTypeKHR::default(),
@@ -988,11 +896,10 @@ impl Deferred<'_> {
                     .size(acceleration_structure_build_sizes_info.acceleration_structure_size);
 
             let handle = unsafe {
-                additional_functions
+                extra_functions
                     .acceleration_structure
                     .create_acceleration_structure(&acceleration_structure_create_info, None)?
             };
-            top_level_acceleration_structure_handle = Some(handle);
 
             let scratch_buffer = common::buffer::Buffer::new(
                 std::ptr::null(),
@@ -1014,14 +921,7 @@ impl Deferred<'_> {
                         instances: vk::AccelerationStructureGeometryInstancesDataKHR::default()
                             .array_of_pointers(false)
                             .data(vk::DeviceOrHostAddressConstKHR {
-                                device_address: unsafe {
-                                    additional_functions
-                                        .buffer_device_address
-                                        .get_buffer_device_address(
-                                            &vk::BufferDeviceAddressInfoKHR::default()
-                                                .buffer(instance_buffer.vk_buffer()),
-                                        )
-                                },
+                                device_address: instance_buffer.device_address(),
                             }),
                     })];
 
@@ -1033,14 +933,7 @@ impl Deferred<'_> {
                     .dst_acceleration_structure(handle)
                     .geometries(&acceleration_structure_geometries)
                     .scratch_data(vk::DeviceOrHostAddressKHR {
-                        device_address: unsafe {
-                            additional_functions
-                                .buffer_device_address
-                                .get_buffer_device_address(
-                                    &vk::BufferDeviceAddressInfoKHR::default()
-                                        .buffer(scratch_buffer.vk_buffer()),
-                                )
-                        },
+                        device_address: scratch_buffer.device_address(),
                     });
 
             let range_info = vk::AccelerationStructureBuildRangeInfoKHR::default()
@@ -1055,7 +948,7 @@ impl Deferred<'_> {
                 begin_single_time_command(command_pool.vk_command_pool(), ash_device.clone());
 
             unsafe {
-                additional_functions
+                extra_functions
                     .acceleration_structure
                     .cmd_build_acceleration_structures(
                         command_buffer,
@@ -1071,17 +964,16 @@ impl Deferred<'_> {
                 ash_device.clone(),
             );
 
-            top_level_acceleration_structure = Some(acceleration_structure);
-
-            top_level_acceleration_structure_device_address = Some(unsafe {
-                additional_functions
+            let device_address = unsafe {
+                extra_functions
                     .acceleration_structure
                     .get_acceleration_structure_device_address(
                         &vk::AccelerationStructureDeviceAddressInfoKHR::default()
                             .acceleration_structure(handle),
                     )
-            });
-        }
+            };
+            (acceleration_structure, handle, device_address)
+        };
 
         let primitive_size = base_color_textures.len();
 
@@ -1508,7 +1400,7 @@ impl Deferred<'_> {
             let transform_ubo_buffer_info = [vk::DescriptorBufferInfo::default()
                 .buffer(transform_ubo.vk_buffer(frame_i))
                 .offset(0)
-                .range(transform_ubo.get_type_size())];
+                .range(transform_ubo.type_size())];
 
             for (primitive_i, set_i) in (0..primitive_size).zip(
                 (0..primitive_size * NUM_GRAPHICS_DESCRIPTOR_SETS)
@@ -1609,7 +1501,7 @@ impl Deferred<'_> {
                 let material_ubo_buffer_info = [vk::DescriptorBufferInfo::default()
                     .buffer(material_ubo[primitive_i].vk_buffer(frame_i))
                     .offset(0)
-                    .range(material_ubo[primitive_i].get_type_size())];
+                    .range(material_ubo[primitive_i].type_size())];
                 descriptor_writes.push(
                     vk::WriteDescriptorSet::default()
                         .dst_set(
@@ -2104,7 +1996,7 @@ impl Deferred<'_> {
                     // skybox
                     vk::DescriptorPoolSize::default()
                         .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                        .descriptor_count((MAX_FRAMES_IN_FLIGHT as u32)),
+                        .descriptor_count(MAX_FRAMES_IN_FLIGHT as u32),
                 ])
                 .flags(vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET),
             ash_device.clone(),
@@ -2135,7 +2027,7 @@ impl Deferred<'_> {
             let transform_ubo_buffer_info = [vk::DescriptorBufferInfo::default()
                 .buffer(transform_ubo.vk_buffer(frame_i))
                 .offset(0)
-                .range(transform_ubo.get_type_size())];
+                .range(transform_ubo.type_size())];
             descriptor_writes.push(
                 vk::WriteDescriptorSet::default()
                     .dst_set(compute_descriptor_sets[frame_i].vk_descriptor_set(0))
@@ -2149,7 +2041,7 @@ impl Deferred<'_> {
             let camera_ubo_buffer_info = [vk::DescriptorBufferInfo::default()
                 .buffer(camera_ubo.vk_buffer(frame_i))
                 .offset(0)
-                .range(camera_ubo.get_type_size())];
+                .range(camera_ubo.type_size())];
             descriptor_writes.push(
                 vk::WriteDescriptorSet::default()
                     .dst_set(compute_descriptor_sets[frame_i].vk_descriptor_set(0))
@@ -2475,7 +2367,7 @@ impl Deferred<'_> {
             let mut descriptor_writes = Vec::new();
 
             // TLAS
-            let tlas_handles = [top_level_acceleration_structure_handle.unwrap()];
+            let tlas_handles = [top_level_acceleration_structure_handle];
             let mut tlas_info = vk::WriteDescriptorSetAccelerationStructureKHR::default()
                 .acceleration_structures(&tlas_handles);
             descriptor_writes.push(
@@ -2492,7 +2384,7 @@ impl Deferred<'_> {
             let transform_ubo_buffer_info = [vk::DescriptorBufferInfo::default()
                 .buffer(transform_ubo.vk_buffer(frame_i))
                 .offset(0)
-                .range(transform_ubo.get_type_size())];
+                .range(transform_ubo.type_size())];
             descriptor_writes.push(
                 vk::WriteDescriptorSet::default()
                     .dst_set(shadow_descriptor_sets[frame_i].vk_descriptor_set(0))
@@ -2642,7 +2534,7 @@ impl Deferred<'_> {
             let shadow_pipeline = common::raytracing_pipeline::RaytracingPipeline::new(
                 &raytracing_pipeline_create_info,
                 ash_device.clone(),
-                additional_functions.raytracing_pipeline.clone(),
+                extra_functions.raytracing_pipeline.clone(),
             );
             unsafe {
                 ash_device.destroy_shader_module(raygen_shader_module, None);
@@ -2659,7 +2551,7 @@ impl Deferred<'_> {
             let mut physical_device_props =
                 vk::PhysicalDeviceProperties2::default().push_next(&mut raytracing_pipeline_props);
             unsafe {
-                additional_functions
+                extra_functions
                     .get_physical_device_properties2
                     .get_physical_device_properties2(physical_device, &mut physical_device_props);
             }
@@ -2674,10 +2566,10 @@ impl Deferred<'_> {
         );
         let group_count = 3; // rgen + miss + chit
 
-        let mut shadow_binding_tables = Vec::new();
+        let mut shadow_shader_binding_tables = Vec::new();
         for frame_i in 0..MAX_FRAMES_IN_FLIGHT {
             let shader_handle_storage = unsafe {
-                additional_functions
+                extra_functions
                     .raytracing_pipeline
                     .get_ray_tracing_shader_group_handles(
                         shadow_pipelines[frame_i].pipeline(),
@@ -2733,13 +2625,13 @@ impl Deferred<'_> {
                 instance.clone(),
             );
 
-            let binding_tables = BindingTables {
+            let binding_table = ShaderBindingTable {
                 raygen: raygen_shader_binding_table,
                 miss: miss_shader_binding_table,
                 hit: closest_hit_shader_binding_table,
             };
 
-            shadow_binding_tables.push(binding_tables);
+            shadow_shader_binding_tables.push(binding_table);
         }
 
         Ok(Self {
@@ -2769,27 +2661,30 @@ impl Deferred<'_> {
             _metallic_roughness_textures: metallic_roughness_textures,
             _emissive_textures: emissive_textures,
             _skybox_resources: skybox_resources,
-            additional_functions,
-            _geometry_node_buffer: geometry_node_buffer,
-            _geometry_nodes: geometry_nodes,
-            _top_level_acceleration_structure: top_level_acceleration_structure,
-            _bottom_level_acceleration_structures: bottom_level_acceleration_structures,
-            _bottom_level_acceleration_structure_handles:
-                bottom_level_acceleration_structure_handles,
-            _shadow_descriptor_pool: shadow_descriptor_pool,
-            shadow_descriptor_sets,
-            shadow_pipeline_layouts,
-            shadow_pipelines,
-            _top_level_acceleration_structure_handle: top_level_acceleration_structure_handle,
-            shadow_render_targets,
-            raytracing_pipeline_props,
-            shadow_binding_tables,
-            _transform_buffers: transform_buffers,
+            extra_functions,
+            shadow_resource: ShadowResource {
+                _shadow_descriptor_pool: shadow_descriptor_pool,
+                _bottom_level_acceleration_structures: bottom_level_acceleration_structures,
+                _top_level_acceleration_structure: top_level_acceleration_structure,
+                _transform_buffers: transform_buffers,
+                shadow_render_targets,
+                shadow_descriptor_sets,
+                shadow_pipeline_layouts,
+                shadow_pipelines,
+                shadow_shader_binding_tables,
+                _geometry_node_buffer: geometry_node_buffer,
+            },
+            raytracing_pipeline_props: RaytracingPipelineProperties {
+                shader_group_base_alignment: raytracing_pipeline_props.shader_group_base_alignment,
+                shader_group_handle_alignment: raytracing_pipeline_props
+                    .shader_group_handle_alignment,
+                shader_group_handle_size: raytracing_pipeline_props.shader_group_handle_size,
+            },
         })
     }
 }
 
-impl DrawStrategy for Deferred<'_> {
+impl DrawStrategy for Deferred {
     fn draw(&self, command_buffer: vk::CommandBuffer, image_index: u32) -> Result<()> {
         let device = &self.ash_device;
 
@@ -2912,7 +2807,7 @@ impl DrawStrategy for Deferred<'_> {
             }
 
             unsafe {
-                self.additional_functions
+                self.extra_functions
                     .mesh_shader
                     .cmd_draw_mesh_tasks(command_buffer, 1, 1, 1);
             }
@@ -2980,7 +2875,7 @@ impl DrawStrategy for Deferred<'_> {
             device.cmd_bind_pipeline(
                 command_buffer,
                 vk::PipelineBindPoint::RAY_TRACING_KHR,
-                self.shadow_pipelines[image_index as usize].pipeline(),
+                self.shadow_resource.shadow_pipelines[image_index as usize].pipeline(),
             );
         }
 
@@ -2989,78 +2884,55 @@ impl DrawStrategy for Deferred<'_> {
             device.cmd_bind_descriptor_sets(
                 command_buffer,
                 vk::PipelineBindPoint::RAY_TRACING_KHR,
-                self.shadow_pipeline_layouts[image_index as usize].vk_pipeline_layout(),
+                self.shadow_resource.shadow_pipeline_layouts[image_index as usize]
+                    .vk_pipeline_layout(),
                 0,
-                &self.shadow_descriptor_sets[image_index as usize].vk_descriptor_sets(),
+                &self.shadow_resource.shadow_descriptor_sets[image_index as usize]
+                    .vk_descriptor_sets(),
                 &[],
             );
         }
 
         log::debug!("trace rays");
-        let raygen_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR::default()
-            .device_address(unsafe {
-                self.additional_functions
-                    .buffer_device_address
-                    .get_buffer_device_address(
-                        &vk::BufferDeviceAddressInfo::default().buffer(
-                            self.shadow_binding_tables[image_index as usize]
-                                .raygen
-                                .vk_buffer(),
-                        ),
-                    )
-            })
-            .size(base_alignment as u64)
-            .stride(base_alignment as u64);
-
-        let miss_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR::default()
-            .device_address(unsafe {
-                self.additional_functions
-                    .buffer_device_address
-                    .get_buffer_device_address(
-                        &vk::BufferDeviceAddressInfo::default().buffer(
-                            self.shadow_binding_tables[image_index as usize]
-                                .miss
-                                .vk_buffer(),
-                        ),
-                    )
-            })
-            .size(base_alignment as u64)
-            .stride(handle_size_aligned as u64);
-
-        let hit_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR::default()
-            .device_address(unsafe {
-                self.additional_functions
-                    .buffer_device_address
-                    .get_buffer_device_address(
-                        &vk::BufferDeviceAddressInfo::default().buffer(
-                            self.shadow_binding_tables[image_index as usize]
-                                .hit
-                                .vk_buffer(),
-                        ),
-                    )
-            })
-            .size(base_alignment as u64)
-            .stride(handle_size_aligned as u64);
-
+        let raygen_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR {
+            device_address: self.shadow_resource.shadow_shader_binding_tables[image_index as usize]
+                .raygen
+                .device_address(),
+            size: base_alignment as u64,
+            stride: base_alignment as u64,
+        };
+        let miss_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR {
+            device_address: self.shadow_resource.shadow_shader_binding_tables[image_index as usize]
+                .miss
+                .device_address(),
+            size: base_alignment as u64,
+            stride: handle_size_aligned as u64,
+        };
+        let hit_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR {
+            device_address: self.shadow_resource.shadow_shader_binding_tables[image_index as usize]
+                .hit
+                .device_address(),
+            size: base_alignment as u64,
+            stride: handle_size_aligned as u64,
+        };
         let callable_shader_binding_table = vk::StridedDeviceAddressRegionKHR::default();
         unsafe {
             let extent = self
+                .shadow_resource
                 .shadow_render_targets
                 .get(&ShadowRenderTarget::Output)
                 .unwrap()
                 .extent();
-            self.additional_functions
-                .raytracing_pipeline
-                .cmd_trace_rays(
-                    command_buffer,
-                    &raygen_shader_binding_table_entry,
-                    &miss_shader_binding_table_entry,
-                    &hit_shader_binding_table_entry,
-                    &callable_shader_binding_table,
-                    extent.width,
-                    extent.height,
-                    1,
-                );
+            self.extra_functions.raytracing_pipeline.cmd_trace_rays(
+                command_buffer,
+                &raygen_shader_binding_table_entry,
+                &miss_shader_binding_table_entry,
+                &hit_shader_binding_table_entry,
+                &callable_shader_binding_table,
+                extent.width,
+                extent.height,
+                1,
+            );
         }
 
         log::debug!("draw deferred pass");
@@ -3083,7 +2955,6 @@ impl DrawStrategy for Deferred<'_> {
             );
         }
 
-        let div_up = |a, b| (a + b - 1) / b;
         let group_count_x = div_up(extent.width, 16);
         let group_count_y = div_up(extent.height, 16);
 

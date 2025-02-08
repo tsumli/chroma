@@ -42,6 +42,7 @@ use crate::{
         },
         strategy::DrawStrategy,
     },
+    raytracing::properties::RaytracingPipelineProperties,
     shader::shader::{
         create_shader_module,
         read_shader_code,
@@ -162,9 +163,7 @@ pub struct Deferred {
     _meshlet_triangle_buffers: Vec<common::buffer::Buffer>,
     additional_functions: AdditionalFunctions,
     shadow_resource: ShadowResource,
-    shader_group_handle_alignment: u32,
-    shader_group_base_alignment: u32,
-    shader_group_handle_size: u32,
+    raytracing_pipeline_props: RaytracingPipelineProperties,
 }
 
 impl Deferred {
@@ -2704,9 +2703,12 @@ impl Deferred {
                 shadow_shader_binding_tables,
                 _geometry_node_buffer: geometry_node_buffer,
             },
-            shader_group_base_alignment: raytracing_pipeline_props.shader_group_base_alignment,
-            shader_group_handle_alignment: raytracing_pipeline_props.shader_group_handle_alignment,
-            shader_group_handle_size: raytracing_pipeline_props.shader_group_handle_size,
+            raytracing_pipeline_props: RaytracingPipelineProperties {
+                shader_group_base_alignment: raytracing_pipeline_props.shader_group_base_alignment,
+                shader_group_handle_alignment: raytracing_pipeline_props
+                    .shader_group_handle_alignment,
+                shader_group_handle_size: raytracing_pipeline_props.shader_group_handle_size,
+            },
         })
     }
 }
@@ -2890,9 +2892,12 @@ impl DrawStrategy for Deferred {
         }
 
         log::debug!("Draw shadow pass");
-        let handle_size = self.shader_group_handle_size;
-        let handle_size_aligned = math::align_up(handle_size, self.shader_group_handle_alignment);
-        let base_alignment = self.shader_group_base_alignment;
+        let handle_size = self.raytracing_pipeline_props.shader_group_handle_size;
+        let handle_size_aligned = math::align_up(
+            handle_size,
+            self.raytracing_pipeline_props.shader_group_handle_alignment,
+        );
+        let base_alignment = self.raytracing_pipeline_props.shader_group_base_alignment;
 
         log::debug!("bind pipeline");
         unsafe {

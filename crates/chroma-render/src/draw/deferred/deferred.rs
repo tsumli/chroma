@@ -2646,7 +2646,7 @@ impl Deferred<'_> {
         let handle_size = raytracing_pipeline_props.shader_group_handle_size;
         let handle_size_aligned = math::align_up(
             handle_size,
-            raytracing_pipeline_props.shader_group_base_alignment,
+            raytracing_pipeline_props.shader_group_handle_alignment,
         );
         let group_count = 3; // rgen + miss + chit
 
@@ -2771,8 +2771,9 @@ impl DrawStrategy for Deferred<'_> {
         let handle_size = self.raytracing_pipeline_props.shader_group_handle_size;
         let handle_size_aligned = math::align_up(
             handle_size,
-            self.raytracing_pipeline_props.shader_group_base_alignment,
+            self.raytracing_pipeline_props.shader_group_handle_alignment,
         );
+        let base_alignment = self.raytracing_pipeline_props.shader_group_base_alignment;
 
         log::debug!("bind pipeline");
         unsafe {
@@ -2808,8 +2809,8 @@ impl DrawStrategy for Deferred<'_> {
                         ),
                     )
             })
-            .size(handle_size as u64)
-            .stride(handle_size as u64);
+            .size(base_alignment as u64)
+            .stride(base_alignment as u64);
 
         let miss_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR::default()
             .device_address(unsafe {
@@ -2823,8 +2824,8 @@ impl DrawStrategy for Deferred<'_> {
                         ),
                     )
             })
-            .size(handle_size as u64)
-            .stride(handle_size as u64);
+            .size(base_alignment as u64)
+            .stride(handle_size_aligned as u64);
 
         let hit_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR::default()
             .device_address(unsafe {
@@ -2838,8 +2839,8 @@ impl DrawStrategy for Deferred<'_> {
                         ),
                     )
             })
-            .size(handle_size as u64)
-            .stride(handle_size as u64);
+            .size(base_alignment as u64)
+            .stride(handle_size_aligned as u64);
 
         let callable_shader_binding_table = vk::StridedDeviceAddressRegionKHR::default();
         unsafe {

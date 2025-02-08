@@ -365,43 +365,17 @@ impl Deferred<'_> {
                                 vk::AccelerationStructureGeometryTrianglesDataKHR::default()
                                     .vertex_format(vk::Format::R32G32B32_SFLOAT)
                                     .vertex_data(vk::DeviceOrHostAddressConstKHR {
-                                        device_address: unsafe {
-                                            additional_functions
-                                                .buffer_device_address
-                                                .get_buffer_device_address(
-                                                    &vk::BufferDeviceAddressInfoKHR::default()
-                                                        .buffer(
-                                                            vertex_buffers[primitive_i].vk_buffer(),
-                                                        ),
-                                                )
-                                        },
+                                        device_address: vertex_buffers[primitive_i]
+                                            .device_address(),
                                     })
                                     .vertex_stride(std::mem::size_of::<Vertex>() as u64)
                                     .index_type(vk::IndexType::UINT32)
                                     .index_data(vk::DeviceOrHostAddressConstKHR {
-                                        device_address: unsafe {
-                                            additional_functions
-                                                .buffer_device_address
-                                                .get_buffer_device_address(
-                                                    &vk::BufferDeviceAddressInfoKHR::default()
-                                                        .buffer(
-                                                            index_buffers[primitive_i].vk_buffer(),
-                                                        ),
-                                                )
-                                        },
+                                        device_address: index_buffers[primitive_i].device_address(),
                                     })
                                     .transform_data(vk::DeviceOrHostAddressConstKHR {
-                                        device_address: unsafe {
-                                            additional_functions
-                                                .buffer_device_address
-                                                .get_buffer_device_address(
-                                                    &vk::BufferDeviceAddressInfoKHR::default()
-                                                        .buffer(
-                                                            transform_buffers[primitive_i]
-                                                                .vk_buffer(),
-                                                        ),
-                                                )
-                                        },
+                                        device_address: transform_buffers[primitive_i]
+                                            .device_address(),
                                     });
 
                             let geometries = vec![vk::AccelerationStructureGeometryKHR::default()
@@ -410,22 +384,10 @@ impl Deferred<'_> {
                                 .flags(vk::GeometryFlagsKHR::OPAQUE)];
 
                             let geometry_node = GeometryNode {
-                                vertex_buffer_device_address: unsafe {
-                                    additional_functions
-                                        .buffer_device_address
-                                        .get_buffer_device_address(
-                                            &vk::BufferDeviceAddressInfoKHR::default()
-                                                .buffer(vertex_buffers[primitive_i].vk_buffer()),
-                                        )
-                                },
-                                index_buffer_device_address: unsafe {
-                                    additional_functions
-                                        .buffer_device_address
-                                        .get_buffer_device_address(
-                                            &vk::BufferDeviceAddressInfoKHR::default()
-                                                .buffer(index_buffers[primitive_i].vk_buffer()),
-                                        )
-                                },
+                                vertex_buffer_device_address: vertex_buffers[primitive_i]
+                                    .device_address(),
+                                index_buffer_device_address: index_buffers[primitive_i]
+                                    .device_address(),
                             };
                             geometry_nodes.push(geometry_node);
 
@@ -525,14 +487,7 @@ impl Deferred<'_> {
                                     )
                                     .geometries(&geometries)
                                     .scratch_data(vk::DeviceOrHostAddressKHR {
-                                        device_address: unsafe {
-                                            additional_functions
-                                                .buffer_device_address
-                                                .get_buffer_device_address(
-                                                    &vk::BufferDeviceAddressInfoKHR::default()
-                                                        .buffer(scratch_buffer.vk_buffer()),
-                                                )
-                                        },
+                                        device_address: scratch_buffer.device_address(),
                                     });
 
                             let range_info = vk::AccelerationStructureBuildRangeInfoKHR::default()
@@ -931,14 +886,7 @@ impl Deferred<'_> {
             geo.instances = vk::AccelerationStructureGeometryInstancesDataKHR::default()
                 .array_of_pointers(false)
                 .data(vk::DeviceOrHostAddressConstKHR {
-                    device_address: unsafe {
-                        additional_functions
-                            .buffer_device_address
-                            .get_buffer_device_address(
-                                &vk::BufferDeviceAddressInfoKHR::default()
-                                    .buffer(instance_buffer.vk_buffer()),
-                            )
-                    },
+                    device_address: instance_buffer.device_address(),
                 });
 
             let acceleration_structure_geometries =
@@ -1014,14 +962,7 @@ impl Deferred<'_> {
                         instances: vk::AccelerationStructureGeometryInstancesDataKHR::default()
                             .array_of_pointers(false)
                             .data(vk::DeviceOrHostAddressConstKHR {
-                                device_address: unsafe {
-                                    additional_functions
-                                        .buffer_device_address
-                                        .get_buffer_device_address(
-                                            &vk::BufferDeviceAddressInfoKHR::default()
-                                                .buffer(instance_buffer.vk_buffer()),
-                                        )
-                                },
+                                device_address: instance_buffer.device_address(),
                             }),
                     })];
 
@@ -1033,14 +974,7 @@ impl Deferred<'_> {
                     .dst_acceleration_structure(handle)
                     .geometries(&acceleration_structure_geometries)
                     .scratch_data(vk::DeviceOrHostAddressKHR {
-                        device_address: unsafe {
-                            additional_functions
-                                .buffer_device_address
-                                .get_buffer_device_address(
-                                    &vk::BufferDeviceAddressInfoKHR::default()
-                                        .buffer(scratch_buffer.vk_buffer()),
-                                )
-                        },
+                        device_address: scratch_buffer.device_address(),
                     });
 
             let range_info = vk::AccelerationStructureBuildRangeInfoKHR::default()
@@ -2998,47 +2932,29 @@ impl DrawStrategy for Deferred<'_> {
 
         log::debug!("trace rays");
         let raygen_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR::default()
-            .device_address(unsafe {
-                self.additional_functions
-                    .buffer_device_address
-                    .get_buffer_device_address(
-                        &vk::BufferDeviceAddressInfo::default().buffer(
-                            self.shadow_binding_tables[image_index as usize]
-                                .raygen
-                                .vk_buffer(),
-                        ),
-                    )
-            })
+            .device_address(
+                self.shadow_binding_tables[image_index as usize]
+                    .raygen
+                    .device_address(),
+            )
             .size(base_alignment as u64)
             .stride(base_alignment as u64);
 
         let miss_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR::default()
-            .device_address(unsafe {
-                self.additional_functions
-                    .buffer_device_address
-                    .get_buffer_device_address(
-                        &vk::BufferDeviceAddressInfo::default().buffer(
-                            self.shadow_binding_tables[image_index as usize]
-                                .miss
-                                .vk_buffer(),
-                        ),
-                    )
-            })
+            .device_address(
+                self.shadow_binding_tables[image_index as usize]
+                    .miss
+                    .device_address(),
+            )
             .size(base_alignment as u64)
             .stride(handle_size_aligned as u64);
 
         let hit_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR::default()
-            .device_address(unsafe {
-                self.additional_functions
-                    .buffer_device_address
-                    .get_buffer_device_address(
-                        &vk::BufferDeviceAddressInfo::default().buffer(
-                            self.shadow_binding_tables[image_index as usize]
-                                .hit
-                                .vk_buffer(),
-                        ),
-                    )
-            })
+            .device_address(
+                self.shadow_binding_tables[image_index as usize]
+                    .hit
+                    .device_address(),
+            )
             .size(base_alignment as u64)
             .stride(handle_size_aligned as u64);
 

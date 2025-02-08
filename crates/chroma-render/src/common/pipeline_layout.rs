@@ -1,6 +1,7 @@
 use anyhow::Result;
 use ash::vk;
 
+#[derive(Clone)]
 pub struct PipelineLayout {
     pipeline_layout: vk::PipelineLayout,
     device: ash::Device,

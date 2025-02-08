@@ -1,5 +1,6 @@
 use ash::vk;
 
+#[derive(Clone)]
 pub struct DescriptorSet {
     descriptor_sets: Vec<vk::DescriptorSet>,
     descriptor_pool: vk::DescriptorPool,

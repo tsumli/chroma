@@ -4,6 +4,7 @@ use ash::vk::{
     PipelineCache,
 };
 
+#[derive(Clone)]
 pub struct RaytracingPipeline {
     pipeline: vk::Pipeline,
     device: ash::Device,

@@ -53,7 +53,7 @@ use winit::{
     window::Window,
 };
 
-pub struct Renderer<'a> {
+pub struct Renderer {
     graphics_compute_queue: vk::Queue,
     present_queue: vk::Queue,
     swapchain: common::swapchain::Swapchain,
@@ -70,19 +70,19 @@ pub struct Renderer<'a> {
     output_framebuffers: Vec<common::framebuffer::Framebuffer>,
     imgui_renderer: imgui_rs_vulkan_renderer::Renderer,
     camera: common::camera::Camera,
-    draw_strategy: draw::deferred::Deferred<'a>,
+    draw_strategy: draw::deferred::Deferred,
     transform_ubo: uniform_buffer::UniformBuffer<TransformParams>,
     camera_ubo: uniform_buffer::UniformBuffer<common::camera::CameraParams>,
     imgui_render_pass: common::render_pass::RenderPass,
 }
 
-impl Drop for Renderer<'_> {
+impl Drop for Renderer {
     fn drop(&mut self) {
         self.device_wait_idle();
     }
 }
 
-impl Renderer<'_> {
+impl Renderer {
     pub fn new(
         window: &Window,
         window_size: PhysicalSize<u32>,

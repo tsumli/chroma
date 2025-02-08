@@ -1,5 +1,6 @@
 use ash::vk;
 
+#[derive(Clone)]
 pub struct DescriptorPool {
     pool: vk::DescriptorPool,
     device: ash::Device,

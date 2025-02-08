@@ -9,7 +9,7 @@ pub struct GeometryNode {
 }
 
 #[derive(Clone)]
-pub struct BindingTables {
+pub struct ShaderBindingTable {
     pub raygen: Buffer,
     pub hit: Buffer,
     pub miss: Buffer,

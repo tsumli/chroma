@@ -1,6 +1,9 @@
-use super::raytracing::{
-    BindingTables,
-    GeometryNode,
+use super::{
+    raytracing::{
+        GeometryNode,
+        ShaderBindingTable,
+    },
+    shadow::ShadowResource,
 };
 use crate::{
     common::{
@@ -30,7 +33,13 @@ use crate::{
         vertex::Vertex,
     },
     draw::{
-        deferred::raytracing::create_identity_transform_matrix,
+        deferred::{
+            raytracing::create_identity_transform_matrix,
+            shadow::{
+                ShadowRenderTarget,
+                NUM_SHADOW_DESCRIPTOR_SETS,
+            },
+        },
         strategy::DrawStrategy,
     },
     shader::shader::{
@@ -86,14 +95,8 @@ enum GraphicsRenderTarget {
     Emissive,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-enum ShadowRenderTarget {
-    Output,
-}
-
 const NUM_GRAPHICS_DESCRIPTOR_SETS: usize = 2;
 const NUM_COMPUTE_DESCRIPTOR_SETS: usize = 3;
-const NUM_SHADOW_DESCRIPTOR_SETS: usize = 3;
 const MIP_LEVEL: u32 = 3;
 
 struct SkyboxResources {
@@ -130,7 +133,7 @@ impl AdditionalFunctions {
     }
 }
 
-pub struct Deferred<'a> {
+pub struct Deferred {
     _transform_ubo: uniform_buffer::UniformBuffer<TransformParams>,
     _camera_ubo: uniform_buffer::UniformBuffer<CameraParams>,
     _material_ubo: Vec<uniform_buffer::UniformBuffer<common::material::MaterialParams>>,
@@ -160,21 +163,14 @@ pub struct Deferred<'a> {
     _meshlet_vertices_buffers: Vec<common::buffer::Buffer>,
     _meshlet_triangle_buffers: Vec<common::buffer::Buffer>,
     additional_functions: AdditionalFunctions,
-    _bottom_level_acceleration_structures: Vec<common::buffer::Buffer>,
-    _bottom_level_acceleration_structure_handles: Vec<vk::AccelerationStructureKHR>,
-    _top_level_acceleration_structure: common::buffer::Buffer,
-    _top_level_acceleration_structure_handle: vk::AccelerationStructureKHR,
-    _shadow_descriptor_pool: descriptor_pool::DescriptorPool,
-    shadow_descriptor_sets: Vec<common::descriptor_set::DescriptorSet>,
-    shadow_pipelines: Vec<common::raytracing_pipeline::RaytracingPipeline>,
-    shadow_pipeline_layouts: Vec<pipeline_layout::PipelineLayout>,
-    shadow_render_targets: HashMap<ShadowRenderTarget, ImageBuffer>,
-    raytracing_pipeline_props: PhysicalDeviceRayTracingPipelinePropertiesKHR<'a>,
-    shadow_binding_tables: Vec<BindingTables>,
     _transform_buffers: Vec<Buffer>,
+    shadow_resource: ShadowResource,
+    shader_group_handle_alignment: u32,
+    shader_group_base_alignment: u32,
+    shader_group_handle_size: u32,
 }
 
-impl Deferred<'_> {
+impl Deferred {
     pub fn new(
         transform_ubo: uniform_buffer::UniformBuffer<TransformParams>,
         camera_ubo: uniform_buffer::UniformBuffer<CameraParams>,
@@ -2603,7 +2599,7 @@ impl Deferred<'_> {
         );
         let group_count = 3; // rgen + miss + chit
 
-        let mut shadow_binding_tables = Vec::new();
+        let mut shadow_shader_binding_tables = Vec::new();
         for frame_i in 0..MAX_FRAMES_IN_FLIGHT {
             let shader_handle_storage = unsafe {
                 additional_functions
@@ -2662,13 +2658,13 @@ impl Deferred<'_> {
                 instance.clone(),
             );
 
-            let binding_tables = BindingTables {
+            let binding_table = ShaderBindingTable {
                 raygen: raygen_shader_binding_table,
                 miss: miss_shader_binding_table,
                 hit: closest_hit_shader_binding_table,
             };
 
-            shadow_binding_tables.push(binding_tables);
+            shadow_shader_binding_tables.push(binding_table);
         }
 
         Ok(Self {
@@ -2701,24 +2697,28 @@ impl Deferred<'_> {
             additional_functions,
             _geometry_node_buffer: geometry_node_buffer,
             _geometry_nodes: geometry_nodes,
-            _top_level_acceleration_structure: top_level_acceleration_structure,
-            _bottom_level_acceleration_structures: bottom_level_acceleration_structures,
-            _bottom_level_acceleration_structure_handles:
-                bottom_level_acceleration_structure_handles,
-            _shadow_descriptor_pool: shadow_descriptor_pool,
-            shadow_descriptor_sets,
-            shadow_pipeline_layouts,
-            shadow_pipelines,
-            _top_level_acceleration_structure_handle: top_level_acceleration_structure_handle,
-            shadow_render_targets,
-            raytracing_pipeline_props,
-            shadow_binding_tables,
             _transform_buffers: transform_buffers,
+            shadow_resource: ShadowResource {
+                _shadow_descriptor_pool: shadow_descriptor_pool,
+                _bottom_level_acceleration_structures: bottom_level_acceleration_structures,
+                _bottom_level_acceleration_structure_handles:
+                    bottom_level_acceleration_structure_handles,
+                _top_level_acceleration_structure: top_level_acceleration_structure,
+                _top_level_acceleration_structure_handle: top_level_acceleration_structure_handle,
+                shadow_render_targets,
+                shadow_descriptor_sets,
+                shadow_pipeline_layouts,
+                shadow_pipelines,
+                shadow_shader_binding_tables,
+            },
+            shader_group_base_alignment: raytracing_pipeline_props.shader_group_base_alignment,
+            shader_group_handle_alignment: raytracing_pipeline_props.shader_group_handle_alignment,
+            shader_group_handle_size: raytracing_pipeline_props.shader_group_handle_size,
         })
     }
 }
 
-impl DrawStrategy for Deferred<'_> {
+impl DrawStrategy for Deferred {
     fn draw(&self, command_buffer: vk::CommandBuffer, image_index: u32) -> Result<()> {
         let device = &self.ash_device;
 
@@ -2897,19 +2897,16 @@ impl DrawStrategy for Deferred<'_> {
         }
 
         log::debug!("Draw shadow pass");
-        let handle_size = self.raytracing_pipeline_props.shader_group_handle_size;
-        let handle_size_aligned = math::align_up(
-            handle_size,
-            self.raytracing_pipeline_props.shader_group_handle_alignment,
-        );
-        let base_alignment = self.raytracing_pipeline_props.shader_group_base_alignment;
+        let handle_size = self.shader_group_handle_size;
+        let handle_size_aligned = math::align_up(handle_size, self.shader_group_handle_alignment);
+        let base_alignment = self.shader_group_base_alignment;
 
         log::debug!("bind pipeline");
         unsafe {
             device.cmd_bind_pipeline(
                 command_buffer,
                 vk::PipelineBindPoint::RAY_TRACING_KHR,
-                self.shadow_pipelines[image_index as usize].pipeline(),
+                self.shadow_resource.shadow_pipelines[image_index as usize].pipeline(),
             );
         }
 
@@ -2918,9 +2915,11 @@ impl DrawStrategy for Deferred<'_> {
             device.cmd_bind_descriptor_sets(
                 command_buffer,
                 vk::PipelineBindPoint::RAY_TRACING_KHR,
-                self.shadow_pipeline_layouts[image_index as usize].vk_pipeline_layout(),
+                self.shadow_resource.shadow_pipeline_layouts[image_index as usize]
+                    .vk_pipeline_layout(),
                 0,
-                &self.shadow_descriptor_sets[image_index as usize].vk_descriptor_sets(),
+                &self.shadow_resource.shadow_descriptor_sets[image_index as usize]
+                    .vk_descriptor_sets(),
                 &[],
             );
         }
@@ -2928,7 +2927,7 @@ impl DrawStrategy for Deferred<'_> {
         log::debug!("trace rays");
         let raygen_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR::default()
             .device_address(
-                self.shadow_binding_tables[image_index as usize]
+                self.shadow_resource.shadow_shader_binding_tables[image_index as usize]
                     .raygen
                     .device_address(),
             )
@@ -2937,7 +2936,7 @@ impl DrawStrategy for Deferred<'_> {
 
         let miss_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR::default()
             .device_address(
-                self.shadow_binding_tables[image_index as usize]
+                self.shadow_resource.shadow_shader_binding_tables[image_index as usize]
                     .miss
                     .device_address(),
             )
@@ -2946,7 +2945,7 @@ impl DrawStrategy for Deferred<'_> {
 
         let hit_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR::default()
             .device_address(
-                self.shadow_binding_tables[image_index as usize]
+                self.shadow_resource.shadow_shader_binding_tables[image_index as usize]
                     .hit
                     .device_address(),
             )
@@ -2956,6 +2955,7 @@ impl DrawStrategy for Deferred<'_> {
         let callable_shader_binding_table = vk::StridedDeviceAddressRegionKHR::default();
         unsafe {
             let extent = self
+                .shadow_resource
                 .shadow_render_targets
                 .get(&ShadowRenderTarget::Output)
                 .unwrap()

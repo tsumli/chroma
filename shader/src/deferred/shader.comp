@@ -17,6 +17,7 @@ layout(rgba32f, set = 1, binding = 2) uniform readonly image2D normal;
 layout(r32f, set = 1, binding = 3) uniform readonly image2D depth;
 layout(rgba32f, set = 1, binding = 4) uniform readonly image2D metallic_roughness;
 layout(rgba32f, set = 1, binding = 5) uniform readonly image2D emissive;
+layout(rgba32f, set = 1, binding = 6) uniform readonly image2D shadow;
 layout(set = 2, binding = 0) uniform samplerCube skybox;
 layout(local_size_x = 16, local_size_y = 16) in;
 
@@ -55,6 +56,7 @@ void main() {
     const float pixel_metallic = pixel_metallic_roughness.r;
     const float pixel_roughness = pixel_metallic_roughness.g;
     const vec4 pixel_emissive = imageLoad(emissive, ivec2(gl_GlobalInvocationID.xy));
+    const vec3 pixel_shadow = imageLoad(shadow, ivec2(gl_GlobalInvocationID.xy)).xyz;
 
     vec4 result_color = vec4(0.0f);
     const vec3 view_dir = normalize(camera.position - pixel_world_pos.xyz);
@@ -98,6 +100,9 @@ void main() {
     const vec3 reflection_uvw = reflect(-view_dir, pixel_normal);
     const vec4 pixel_reflection = SampleSkybox(reflection_uvw);
     result_color = brdf * n_o_l * vec4(light_color, 1.0) + pixel_emissive;
+
+    // apply shadow
+    result_color.rgb *= pixel_shadow;
 
     // gamma correction
     result_color.rgb = pow(result_color.rgb, vec3(0.45));

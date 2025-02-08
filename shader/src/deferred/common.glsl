@@ -35,4 +35,5 @@ struct CameraParams {
     vec3 position;
 };
 
+const float kEpsilon = 0.001f;
 #endif

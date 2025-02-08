@@ -73,31 +73,24 @@ Triangle UnpackTriangle(const uint primitive_index) {
 }
 
 void main() {
-    // Triangle tri = UnpackTriangle(gl_PrimitiveID);
-    // GeometryNode geometry_node = geometry_nodes[gl_InstanceID];
-    // const vec3 normal_ws = normalize(mat3x3(transform.world) * tri.normal);
+    Triangle tri = UnpackTriangle(gl_PrimitiveID);
 
-    // ray_payload.dist = gl_RayTmaxEXT;
-    // ray_payload.normal = normal_ws;
-    // ray_payload.reflector = 1.0f;
+    const vec3 light_pos = vec3(5.0, 5.0, 5.0);
 
-    // vec3 light_pos = vec3(5.0, 5.0, 5.0);
+    // Shadow casting
+    const float t_min = 0.05;
+    vec3 origin =
+        gl_WorldRayOriginEXT + gl_WorldRayDirectionEXT * gl_HitTEXT + tri.normal * kEpsilon;
 
-    // // Shadow casting
-    // float t_min = 0.01;
-    // float t_max = length(light_pos - tri.position.xyz);
-    // float epsilon = 0.001;
-    // vec3 origin =
-    //     gl_WorldRayOriginEXT + gl_WorldRayDirectionEXT * gl_HitTEXT + tri.normal * epsilon;
-
-    // // Trace shadow ray and offset indices to match shadow hit/miss shader group indices
-    // traceRayEXT(tlas,
-    //     gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT |
-    //         gl_RayFlagsSkipClosestHitShaderEXT,
-    //     0xFF, 0, 0, 0, origin, t_min, normalize(light_pos - tri.position.xyz), t_max, 0);
-
-    // if (ray_payload.shadowed) {
-    //     ray_payload.color *= 0.3;
-    // }
-    ray_payload.color = vec3(gl_InstanceID / 255.0, 0.0, 0.0);
+    // Trace shadow ray and offset indices to match shadow hit/miss shader group indices
+    ray_payload.shadowed = true;
+    traceRayEXT(tlas,
+        gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT |
+            gl_RayFlagsSkipClosestHitShaderEXT,
+        0xFF, 0, 0, 0, origin, t_min,
+        normalize(light_pos - tri.position.xyz),
+        length(light_pos - tri.position.xyz), 0);
+    if (ray_payload.shadowed) {
+        ray_payload.color *= 0.3;
+    }
 }

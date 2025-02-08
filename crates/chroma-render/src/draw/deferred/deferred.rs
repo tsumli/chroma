@@ -2061,6 +2061,12 @@ impl Deferred<'_> {
                         .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
                         .descriptor_count(1)
                         .stage_flags(vk::ShaderStageFlags::COMPUTE),
+                    // shadow
+                    vk::DescriptorSetLayoutBinding::default()
+                        .binding(6)
+                        .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
+                        .descriptor_count(1)
+                        .stage_flags(vk::ShaderStageFlags::COMPUTE),
                 ]),
                 ash_device.clone(),
             ),
@@ -2091,10 +2097,10 @@ impl Deferred<'_> {
                     vk::DescriptorPoolSize::default()
                         .ty(vk::DescriptorType::SAMPLED_IMAGE)
                         .descriptor_count(MAX_FRAMES_IN_FLIGHT as u32),
-                    // color + normal + output + metallic_roughness + emissive
+                    // color + normal + output + metallic_roughness + emissive + shadow
                     vk::DescriptorPoolSize::default()
                         .ty(vk::DescriptorType::STORAGE_IMAGE)
-                        .descriptor_count((MAX_FRAMES_IN_FLIGHT as u32) * 5),
+                        .descriptor_count((MAX_FRAMES_IN_FLIGHT as u32) * 6),
                     // skybox
                     vk::DescriptorPoolSize::default()
                         .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
@@ -2259,6 +2265,24 @@ impl Deferred<'_> {
                     .dst_array_element(0)
                     .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
                     .image_info(&emissive_image_info),
+            );
+
+            // shadow
+            let shadow_image_info = [vk::DescriptorImageInfo::default()
+                .image_view(
+                    shadow_render_targets
+                        .get(&ShadowRenderTarget::Output)
+                        .unwrap()
+                        .image_view(),
+                )
+                .image_layout(vk::ImageLayout::GENERAL)];
+            descriptor_writes.push(
+                vk::WriteDescriptorSet::default()
+                    .dst_set(compute_descriptor_sets[frame_i].vk_descriptor_set(1))
+                    .dst_binding(6)
+                    .dst_array_element(0)
+                    .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
+                    .image_info(&shadow_image_info),
             );
 
             // skybox
@@ -2669,7 +2693,7 @@ impl Deferred<'_> {
                 vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT;
 
             let raygen_shader_binding_table = Buffer::new(
-                std::ptr::addr_of!(shader_handle_storage) as *const _,
+                shader_handle_storage.as_ptr() as *const _,
                 handle_size as u64,
                 1,
                 buffer_usage_flags,
@@ -2681,8 +2705,9 @@ impl Deferred<'_> {
 
             let miss_shader_binding_table = Buffer::new(
                 unsafe {
-                    std::ptr::addr_of!(shader_handle_storage).add(handle_size_aligned as usize)
-                        as *const _
+                    shader_handle_storage
+                        .as_ptr()
+                        .add(handle_size_aligned as usize) as *const _
                 },
                 handle_size as u64,
                 1,
@@ -2695,8 +2720,9 @@ impl Deferred<'_> {
 
             let closest_hit_shader_binding_table = Buffer::new(
                 unsafe {
-                    std::ptr::addr_of!(shader_handle_storage).add(handle_size_aligned as usize * 2)
-                        as *const _
+                    shader_handle_storage
+                        .as_ptr()
+                        .add(handle_size_aligned as usize * 2) as *const _
                 },
                 handle_size as u64,
                 1,
@@ -2766,102 +2792,6 @@ impl Deferred<'_> {
 impl DrawStrategy for Deferred<'_> {
     fn draw(&self, command_buffer: vk::CommandBuffer, image_index: u32) -> Result<()> {
         let device = &self.ash_device;
-
-        log::debug!("Draw shadow pass");
-        let handle_size = self.raytracing_pipeline_props.shader_group_handle_size;
-        let handle_size_aligned = math::align_up(
-            handle_size,
-            self.raytracing_pipeline_props.shader_group_handle_alignment,
-        );
-        let base_alignment = self.raytracing_pipeline_props.shader_group_base_alignment;
-
-        log::debug!("bind pipeline");
-        unsafe {
-            device.cmd_bind_pipeline(
-                command_buffer,
-                vk::PipelineBindPoint::RAY_TRACING_KHR,
-                self.shadow_pipelines[image_index as usize].pipeline(),
-            );
-        }
-
-        log::debug!("bind descriptor sets");
-        unsafe {
-            device.cmd_bind_descriptor_sets(
-                command_buffer,
-                vk::PipelineBindPoint::RAY_TRACING_KHR,
-                self.shadow_pipeline_layouts[image_index as usize].vk_pipeline_layout(),
-                0,
-                &self.shadow_descriptor_sets[image_index as usize].vk_descriptor_sets(),
-                &[],
-            );
-        }
-
-        log::debug!("trace rays");
-        let raygen_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR::default()
-            .device_address(unsafe {
-                self.additional_functions
-                    .buffer_device_address
-                    .get_buffer_device_address(
-                        &vk::BufferDeviceAddressInfo::default().buffer(
-                            self.shadow_binding_tables[image_index as usize]
-                                .raygen
-                                .vk_buffer(),
-                        ),
-                    )
-            })
-            .size(base_alignment as u64)
-            .stride(base_alignment as u64);
-
-        let miss_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR::default()
-            .device_address(unsafe {
-                self.additional_functions
-                    .buffer_device_address
-                    .get_buffer_device_address(
-                        &vk::BufferDeviceAddressInfo::default().buffer(
-                            self.shadow_binding_tables[image_index as usize]
-                                .miss
-                                .vk_buffer(),
-                        ),
-                    )
-            })
-            .size(base_alignment as u64)
-            .stride(handle_size_aligned as u64);
-
-        let hit_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR::default()
-            .device_address(unsafe {
-                self.additional_functions
-                    .buffer_device_address
-                    .get_buffer_device_address(
-                        &vk::BufferDeviceAddressInfo::default().buffer(
-                            self.shadow_binding_tables[image_index as usize]
-                                .hit
-                                .vk_buffer(),
-                        ),
-                    )
-            })
-            .size(base_alignment as u64)
-            .stride(handle_size_aligned as u64);
-
-        let callable_shader_binding_table = vk::StridedDeviceAddressRegionKHR::default();
-        unsafe {
-            let extent = self
-                .shadow_render_targets
-                .get(&ShadowRenderTarget::Output)
-                .unwrap()
-                .extent();
-            self.additional_functions
-                .raytracing_pipeline
-                .cmd_trace_rays(
-                    command_buffer,
-                    &raygen_shader_binding_table_entry,
-                    &miss_shader_binding_table_entry,
-                    &hit_shader_binding_table_entry,
-                    &callable_shader_binding_table,
-                    extent.width,
-                    extent.height,
-                    1,
-                );
-        }
 
         log::debug!("draw deferred rendering");
 
@@ -3037,6 +2967,102 @@ impl DrawStrategy for Deferred<'_> {
             }
         }
 
+        log::debug!("Draw shadow pass");
+        let handle_size = self.raytracing_pipeline_props.shader_group_handle_size;
+        let handle_size_aligned = math::align_up(
+            handle_size,
+            self.raytracing_pipeline_props.shader_group_handle_alignment,
+        );
+        let base_alignment = self.raytracing_pipeline_props.shader_group_base_alignment;
+
+        log::debug!("bind pipeline");
+        unsafe {
+            device.cmd_bind_pipeline(
+                command_buffer,
+                vk::PipelineBindPoint::RAY_TRACING_KHR,
+                self.shadow_pipelines[image_index as usize].pipeline(),
+            );
+        }
+
+        log::debug!("bind descriptor sets");
+        unsafe {
+            device.cmd_bind_descriptor_sets(
+                command_buffer,
+                vk::PipelineBindPoint::RAY_TRACING_KHR,
+                self.shadow_pipeline_layouts[image_index as usize].vk_pipeline_layout(),
+                0,
+                &self.shadow_descriptor_sets[image_index as usize].vk_descriptor_sets(),
+                &[],
+            );
+        }
+
+        log::debug!("trace rays");
+        let raygen_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR::default()
+            .device_address(unsafe {
+                self.additional_functions
+                    .buffer_device_address
+                    .get_buffer_device_address(
+                        &vk::BufferDeviceAddressInfo::default().buffer(
+                            self.shadow_binding_tables[image_index as usize]
+                                .raygen
+                                .vk_buffer(),
+                        ),
+                    )
+            })
+            .size(base_alignment as u64)
+            .stride(base_alignment as u64);
+
+        let miss_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR::default()
+            .device_address(unsafe {
+                self.additional_functions
+                    .buffer_device_address
+                    .get_buffer_device_address(
+                        &vk::BufferDeviceAddressInfo::default().buffer(
+                            self.shadow_binding_tables[image_index as usize]
+                                .miss
+                                .vk_buffer(),
+                        ),
+                    )
+            })
+            .size(base_alignment as u64)
+            .stride(handle_size_aligned as u64);
+
+        let hit_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR::default()
+            .device_address(unsafe {
+                self.additional_functions
+                    .buffer_device_address
+                    .get_buffer_device_address(
+                        &vk::BufferDeviceAddressInfo::default().buffer(
+                            self.shadow_binding_tables[image_index as usize]
+                                .hit
+                                .vk_buffer(),
+                        ),
+                    )
+            })
+            .size(base_alignment as u64)
+            .stride(handle_size_aligned as u64);
+
+        let callable_shader_binding_table = vk::StridedDeviceAddressRegionKHR::default();
+        unsafe {
+            let extent = self
+                .shadow_render_targets
+                .get(&ShadowRenderTarget::Output)
+                .unwrap()
+                .extent();
+            self.additional_functions
+                .raytracing_pipeline
+                .cmd_trace_rays(
+                    command_buffer,
+                    &raygen_shader_binding_table_entry,
+                    &miss_shader_binding_table_entry,
+                    &hit_shader_binding_table_entry,
+                    &callable_shader_binding_table,
+                    extent.width,
+                    extent.height,
+                    1,
+                );
+        }
+
         log::debug!("draw deferred pass");
         unsafe {
             device.cmd_bind_pipeline(
@@ -3097,7 +3123,6 @@ impl DrawStrategy for Deferred<'_> {
     }
 
     fn output_render_target(&self) -> &ImageBuffer {
-        // &self.graphics_render_targets[&GraphicsRenderTarget::Output]
-        &self.shadow_render_targets[&ShadowRenderTarget::Output]
+        &self.graphics_render_targets[&GraphicsRenderTarget::Output]
     }
 }

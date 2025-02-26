@@ -105,7 +105,7 @@ impl Camera {
             position,
             rotation,
             mouse_sens: 0.1,
-            move_speed: 0.1,
+            move_speed: 0.3,
             look_at,
             cam_right,
             cam_up,

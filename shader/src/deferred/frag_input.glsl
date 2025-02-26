@@ -1,5 +1,5 @@
-#ifndef FRAG_INPUT
-#define FRAG_INPUT
+#ifndef FRAG_INPUT_GLSL
+#define FRAG_INPUT_GLSL
 
 struct FragInput {
     vec4 position_cs;

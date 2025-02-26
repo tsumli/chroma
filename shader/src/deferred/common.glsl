@@ -1,5 +1,5 @@
-#ifndef COMMON
-#define COMMON
+#ifndef COMMON_GLSL
+#define COMMON_GLSL
 
 struct TransformParams {
     mat4x4 world;
@@ -36,4 +36,24 @@ struct CameraParams {
 };
 
 const float kEpsilon = 0.001f;
+const float kPi = 3.14159265359f;
+const float kInvPi = 1.0f / kPi;
+
+// Saturate
+float Saturate(float x) {
+    return clamp(x, 0.0, 1.0);
+}
+
+double Saturate(double x) {
+    return clamp(x, 0.0, 1.0);
+}
+
+vec2 Saturate(vec2 x) {
+    return clamp(x, 0.0, 1.0);
+}
+
+vec3 Saturate(vec3 x) {
+    return clamp(x, 0.0, 1.0);
+}
+
 #endif

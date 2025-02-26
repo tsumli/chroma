@@ -1,3 +1,6 @@
+#ifndef HAMMERSLEY_GLSL
+#define HAMMERSLEY_GLSL
+
 float RadicalInverse(uint bits) {
     bits = (bits << 16u) | (bits >> 16u);
     bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
@@ -7,6 +10,9 @@ float RadicalInverse(uint bits) {
     return float(bits) * 2.3283064365386963e-10; // / 0x100000000
 }
 
-vec2 Hammersley(uint n, uint N) {
-    return vec2((float(n) + 0.5) / float(N), RadicalInverse(n + 1u));
+vec2 Hammersley(uint n, uint num_samples) {
+    // expect: n < num_samples
+    return vec2((float(n) + 0.5) / float(num_samples), RadicalInverse(n + 1u));
 }
+
+#endif // HAMMERSLEY_GLSL

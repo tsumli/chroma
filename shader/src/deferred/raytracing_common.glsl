@@ -1,5 +1,5 @@
-#ifndef RAYTRACING_COMMON
-#define RAYTRACING_COMMON
+#ifndef RAYTRACING_COMMON_GLSL
+#define RAYTRACING_COMMON_GLSL
 
 #extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require

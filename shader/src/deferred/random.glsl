@@ -4,8 +4,8 @@
  *
  */
 
-#ifndef RANDOM
-#define RANDOM
+#ifndef RANDOM_GLSL
+#define RANDOM_GLSL
 
 // Tiny Encryption Algorithm
 // By Fahad Zafar, Marc Olano and Aaron Curtis, see

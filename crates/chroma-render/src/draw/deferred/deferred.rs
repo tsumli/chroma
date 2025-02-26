@@ -2894,6 +2894,32 @@ impl DrawStrategy for Deferred {
         }
 
         log::debug!("trace rays");
+
+        {
+            log::debug!("shadow: read -> write");
+            let barriers = [vk::ImageMemoryBarrier2::default()
+                .src_stage_mask(PipelineStageFlags2::ALL_COMMANDS)
+                .src_access_mask(vk::AccessFlags2::SHADER_STORAGE_READ)
+                .dst_stage_mask(PipelineStageFlags2::ALL_COMMANDS)
+                .dst_access_mask(vk::AccessFlags2::SHADER_STORAGE_WRITE)
+                .old_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .new_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+                .image(
+                    self.shadow_resource.shadow_render_targets[&ShadowRenderTarget::Output].image(),
+                )
+                .subresource_range(ImageSubresourceRange {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    base_mip_level: 0,
+                    level_count: 1,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                })];
+            let dependency_info = vk::DependencyInfoKHR::default().image_memory_barriers(&barriers);
+            unsafe {
+                device.cmd_pipeline_barrier2(command_buffer, &dependency_info);
+            }
+        }
+
         let raygen_shader_binding_table_entry = vk::StridedDeviceAddressRegionKHR {
             device_address: self.shadow_resource.shadow_shader_binding_tables[image_index as usize]
                 .raygen
@@ -2933,6 +2959,35 @@ impl DrawStrategy for Deferred {
                 extent.height,
                 1,
             );
+        }
+
+        {
+            log::debug!("shadow: write -> read");
+            let barriers = [
+                // shadow: write -> read
+                vk::ImageMemoryBarrier2::default()
+                    .src_stage_mask(PipelineStageFlags2::ALL_COMMANDS)
+                    .src_access_mask(vk::AccessFlags2::SHADER_STORAGE_WRITE)
+                    .dst_stage_mask(PipelineStageFlags2::ALL_COMMANDS)
+                    .dst_access_mask(vk::AccessFlags2::SHADER_STORAGE_READ)
+                    .old_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+                    .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                    .image(
+                        self.shadow_resource.shadow_render_targets[&ShadowRenderTarget::Output]
+                            .image(),
+                    )
+                    .subresource_range(ImageSubresourceRange {
+                        aspect_mask: vk::ImageAspectFlags::COLOR,
+                        base_mip_level: 0,
+                        level_count: 1,
+                        base_array_layer: 0,
+                        layer_count: 1,
+                    }),
+            ];
+            let dependency_info = vk::DependencyInfoKHR::default().image_memory_barriers(&barriers);
+            unsafe {
+                device.cmd_pipeline_barrier2(command_buffer, &dependency_info);
+            }
         }
 
         log::debug!("draw deferred pass");

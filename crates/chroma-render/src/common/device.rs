@@ -13,19 +13,20 @@ use std::{
     ffi::CStr,
 };
 
-const DEVICE_EXTENSIONS: [&CStr; 12] = [
+const DEVICE_EXTENSIONS: [&CStr; 6] = [
     ash::khr::swapchain::NAME,
-    ash::ext::robustness2::NAME,
-    ash::khr::deferred_host_operations::NAME,
-    ash::khr::pipeline_library::NAME,
-    ash::khr::ray_tracing_pipeline::NAME,
-    ash::khr::acceleration_structure::NAME,
-    ash::ext::mesh_shader::NAME,
+    // ash::ext::robustness2::NAME,
+    // ash::khr::deferred_host_operations::NAME,
+    // ash::khr::pipeline_library::NAME,
+    // ash::khr::ray_tracing_pipeline::NAME,
+    // ash::khr::acceleration_structure::NAME,
+    // ash::ext::mesh_shader::NAME,
     ash::khr::spirv_1_4::NAME,
-    ash::khr::shader_clock::NAME,
+    // ash::khr::shader_clock::NAME,
     ash::khr::buffer_device_address::NAME,
     ash::ext::descriptor_indexing::NAME,
     ash::khr::synchronization2::NAME,
+    ash::khr::portability_subset::NAME,
 ];
 
 pub fn pick_physical_device(
@@ -181,45 +182,50 @@ pub fn create_logical_device(
     physical_device_timeline_semaphore_features.p_next =
         &mut physical_device_mesh_shader_features as *mut _ as *mut std::ffi::c_void;
 
-    let mut raytracing_pipeline_features =
-        vk::PhysicalDeviceRayTracingPipelineFeaturesKHR::default()
-            .ray_tracing_pipeline(true)
-            .ray_tracing_pipeline_trace_rays_indirect(true)
-            .ray_traversal_primitive_culling(true);
-    raytracing_pipeline_features.p_next =
-        &mut physical_device_timeline_semaphore_features as *mut _ as *mut std::ffi::c_void;
+    // let mut raytracing_pipeline_features =
+    //     vk::PhysicalDeviceRayTracingPipelineFeaturesKHR::default()
+    //         .ray_tracing_pipeline(true)
+    //         .ray_tracing_pipeline_trace_rays_indirect(true)
+    //         .ray_traversal_primitive_culling(true);
+    // raytracing_pipeline_features.p_next =
+    //     &mut physical_device_timeline_semaphore_features as *mut _ as *mut std::ffi::c_void;
 
-    let mut acceleration_structure_features =
-        vk::PhysicalDeviceAccelerationStructureFeaturesKHR::default()
-            .acceleration_structure(true)
-            .acceleration_structure_capture_replay(true)
-            .descriptor_binding_acceleration_structure_update_after_bind(true);
-    acceleration_structure_features.p_next =
-        &mut raytracing_pipeline_features as *mut _ as *mut std::ffi::c_void;
+    // let mut acceleration_structure_features =
+    //     vk::PhysicalDeviceAccelerationStructureFeaturesKHR::default()
+    //         .acceleration_structure(true)
+    //         .acceleration_structure_capture_replay(true)
+    //         .descriptor_binding_acceleration_structure_update_after_bind(true);
+    // acceleration_structure_features.p_next =
+    //     &mut raytracing_pipeline_features as *mut _ as *mut std::ffi::c_void;
 
     let mut scalar_block_layout_features =
         vk::PhysicalDeviceScalarBlockLayoutFeaturesEXT::default().scalar_block_layout(true);
     scalar_block_layout_features.p_next =
-        &mut acceleration_structure_features as *mut _ as *mut std::ffi::c_void;
+        &mut physical_device_timeline_semaphore_features as *mut _ as *mut std::ffi::c_void;
+
+    // synchronization2_features.p_next =
+    // &mut scalar_block_layout_features as *mut _ as *mut std::ffi::c_void;
+
+    let mut robustness2_features = vk::PhysicalDeviceRobustness2FeaturesEXT::default();
+    // .null_descriptor(true)
+    // .robust_buffer_access2(true)
+    // .robust_image_access2(true);
+    // robustness2_features.p_next = &mut synchronization2_features as *mut _ as *mut
+    // std::ffi::c_void;
+
+    let mut buffer_device_address_features =
+        vk::PhysicalDeviceBufferDeviceAddressFeatures::default().buffer_device_address(true);
+    // .buffer_device_address_capture_replay(true)
+    // .buffer_device_address_multi_device(true);
+    buffer_device_address_features.p_next =
+        &mut robustness2_features as *mut _ as *mut std::ffi::c_void;
+
+    let mut portability_subset_features = vk::PhysicalDevicePortabilitySubsetFeaturesKHR::default();
 
     let mut synchronization2_features =
         vk::PhysicalDeviceSynchronization2FeaturesKHR::default().synchronization2(true);
     synchronization2_features.p_next =
-        &mut scalar_block_layout_features as *mut _ as *mut std::ffi::c_void;
-
-    let mut robustness2_features = vk::PhysicalDeviceRobustness2FeaturesEXT::default()
-        .null_descriptor(true)
-        .robust_buffer_access2(true)
-        .robust_image_access2(true);
-    robustness2_features.p_next = &mut synchronization2_features as *mut _ as *mut std::ffi::c_void;
-
-    let mut buffer_device_address_features =
-        vk::PhysicalDeviceBufferDeviceAddressFeatures::default()
-            .buffer_device_address(true)
-            .buffer_device_address_capture_replay(true)
-            .buffer_device_address_multi_device(true);
-    buffer_device_address_features.p_next =
-        &mut robustness2_features as *mut _ as *mut std::ffi::c_void;
+        &mut portability_subset_features as *mut _ as *mut std::ffi::c_void;
 
     let mut physical_device_features = vk::PhysicalDeviceFeatures2::default()
         .features(
@@ -229,7 +235,7 @@ pub fn create_logical_device(
                 .sampler_anisotropy(true)
                 .shader_clip_distance(true),
         )
-        .push_next(&mut buffer_device_address_features);
+        .push_next(&mut synchronization2_features);
 
     let extension_names = DEVICE_EXTENSIONS
         .iter()

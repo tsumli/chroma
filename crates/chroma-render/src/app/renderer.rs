@@ -70,9 +70,9 @@ pub struct Renderer {
     output_framebuffers: Vec<common::framebuffer::Framebuffer>,
     imgui_renderer: imgui_rs_vulkan_renderer::Renderer,
     camera: common::camera::Camera,
-    draw_strategy: draw::deferred::Deferred,
-    transform_ubo: uniform_buffer::UniformBuffer<TransformParams>,
-    camera_ubo: uniform_buffer::UniformBuffer<common::camera::CameraParams>,
+    draw_strategy: Box<dyn DrawStrategy>,
+    // transform_ubo: uniform_buffer::UniformBuffer<TransformParams>,
+    // camera_ubo: uniform_buffer::UniformBuffer<common::camera::CameraParams>,
     imgui_render_pass: common::render_pass::RenderPass,
 }
 
@@ -201,19 +201,19 @@ impl Renderer {
         )?;
 
         log::info!("creating uniform buffer");
-        let transform_ubo = uniform_buffer::UniformBuffer::<TransformParams>::new(
-            TransformParams::default(),
-            physical_device,
-            ash_device.clone(),
-            instance.instance().clone(),
-        );
+        // let transform_ubo = uniform_buffer::UniformBuffer::<TransformParams>::new(
+        //     TransformParams::default(),
+        //     physical_device,
+        //     ash_device.clone(),
+        //     instance.instance().clone(),
+        // );
 
-        let camera_ubo = uniform_buffer::UniformBuffer::<common::camera::CameraParams>::new(
-            common::camera::CameraParams::default(),
-            physical_device,
-            ash_device.clone(),
-            instance.instance().clone(),
-        );
+        // let camera_ubo = uniform_buffer::UniformBuffer::<common::camera::CameraParams>::new(
+        //     common::camera::CameraParams::default(),
+        //     physical_device,
+        //     ash_device.clone(),
+        //     instance.instance().clone(),
+        // );
 
         // setup imgui
         log::info!("setting up imgui");
@@ -285,17 +285,24 @@ impl Renderer {
 
         let camera = common::camera::Camera::new(window_size.width, window_size.height);
 
-        let draw_strategy = draw::deferred::Deferred::new(
-            transform_ubo.clone(),
-            camera_ubo.clone(),
-            scene.clone(),
+        // let draw_strategy = draw::deferred::Deferred::new(
+        //     transform_ubo.clone(),
+        //     camera_ubo.clone(),
+        //     scene.clone(),
+        //     &swapchain,
+        //     physical_device,
+        //     ash_device.clone(),
+        //     &surface,
+        //     instance.instance().clone(),
+        //     entry,
+        // )?;
+        let draw_strategy = Box::from(draw::simple::Simple::new(
             &swapchain,
             physical_device,
             ash_device.clone(),
-            &surface,
             instance.instance().clone(),
             entry,
-        )?;
+        )?);
 
         Ok(Self {
             device,
@@ -309,8 +316,8 @@ impl Renderer {
             output_framebuffers,
             imgui_renderer,
             camera,
-            transform_ubo,
-            camera_ubo,
+            // transform_ubo,
+            // camera_ubo,
             imgui_render_pass,
             draw_strategy,
             _command_pool: command_pool,
@@ -362,30 +369,30 @@ impl Renderer {
 
         log::debug!("update uniform buffer");
         let transform_params = self.camera.create_transform_params();
-        self.transform_ubo
-            .update(image_index as usize, transform_params);
+        // self.transform_ubo
+        // .update(image_index as usize, transform_params);
         let camera_params = self.camera.create_camera_params();
-        self.camera_ubo.update(image_index as usize, camera_params);
+        // self.camera_ubo.update(image_index as usize, camera_params);
 
         log::debug!("reset command buffer");
-        unsafe {
-            device
-                .reset_command_buffer(command_buffer, vk::CommandBufferResetFlags::default())
-                .unwrap();
-        }
+        // unsafe {
+        //     device
+        //         .reset_command_buffer(command_buffer, vk::CommandBufferResetFlags::default())
+        //         .unwrap();
+        // }
 
         log::debug!("begin command buffers");
         let command_buffer_begin_info = vk::CommandBufferBeginInfo::default();
-        unsafe {
-            device
-                .begin_command_buffer(command_buffer, &command_buffer_begin_info)
-                .unwrap();
-        }
+        // unsafe {
+        //     device
+        //         .begin_command_buffer(command_buffer, &command_buffer_begin_info)
+        //         .unwrap();
+        // }
 
-        // draw pass
-        self.draw_strategy
-            .draw(command_buffer, image_index)
-            .unwrap();
+        // // draw pass
+        // self.draw_strategy
+        //     .draw(command_buffer, image_index)
+        //     .unwrap();
 
         // copy output to output render target
         log::debug!("transition image layout");
@@ -424,9 +431,9 @@ impl Renderer {
                 }),
         ];
         let dependency_info = vk::DependencyInfoKHR::default().image_memory_barriers(&barriers);
-        unsafe {
-            device.cmd_pipeline_barrier2(command_buffer, &dependency_info);
-        }
+        // unsafe {
+        //     device.cmd_pipeline_barrier2(command_buffer, &dependency_info);
+        // }
 
         // copy output to swapchain
         log::debug!("copy draw output to output render target");
@@ -455,9 +462,9 @@ impl Renderer {
             .dst_image_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
             .regions(&image_copy);
 
-        unsafe {
-            device.cmd_copy_image2(command_buffer, &copy_image_info);
-        }
+        // unsafe {
+        //     device.cmd_copy_image2(command_buffer, &copy_image_info);
+        // }
 
         log::debug!("transition image layout");
         let barriers = [
@@ -495,9 +502,9 @@ impl Renderer {
                 }),
         ];
         let dependency_info = vk::DependencyInfoKHR::default().image_memory_barriers(&barriers);
-        unsafe {
-            device.cmd_pipeline_barrier2(command_buffer, &dependency_info);
-        }
+        // unsafe {
+        //     device.cmd_pipeline_barrier2(command_buffer, &dependency_info);
+        // }
 
         // imgui pass
         log::debug!("imgui pass");
@@ -516,17 +523,17 @@ impl Renderer {
                 },
             });
 
-        unsafe {
-            device.cmd_begin_render_pass(
-                command_buffer,
-                &render_pass_begin_info,
-                vk::SubpassContents::INLINE,
-            );
-        }
+        // unsafe {
+        //     device.cmd_begin_render_pass(
+        //         command_buffer,
+        //         &render_pass_begin_info,
+        //         vk::SubpassContents::INLINE,
+        //     );
+        // }
 
-        imgui_platform
-            .prepare_frame(imgui_context.io_mut(), window)
-            .unwrap();
+        // imgui_platform
+        //     .prepare_frame(imgui_context.io_mut(), window)
+        //     .unwrap();
         imgui_context
             .io_mut()
             .update_delta_time(self.timer.get_elapsed());
@@ -557,16 +564,16 @@ impl Renderer {
             self.camera.set_move_speed(move_speed);
         });
 
-        imgui_platform.prepare_render(&ui, window);
-        self.imgui_renderer
-            .cmd_draw(command_buffer, imgui_context.render())
-            .unwrap();
+        // imgui_platform.prepare_render(&ui, window);
+        // self.imgui_renderer
+        //     .cmd_draw(command_buffer, imgui_context.render())
+        //     .unwrap();
 
         // end render pass
         log::debug!("end render pass");
-        unsafe {
-            device.cmd_end_render_pass(command_buffer);
-        }
+        // unsafe {
+        // device.cmd_end_render_pass(command_buffer);
+        // }
 
         log::debug!("output: color attachment -> transfer src");
         log::debug!("swapchain: present src -> color attachment");
@@ -605,9 +612,9 @@ impl Renderer {
                 }),
         ];
         let dependency_info = vk::DependencyInfoKHR::default().image_memory_barriers(&barriers);
-        unsafe {
-            device.cmd_pipeline_barrier2(command_buffer, &dependency_info);
-        }
+        // unsafe {
+        //     device.cmd_pipeline_barrier2(command_buffer, &dependency_info);
+        // }
 
         // copy output to swapchain
         log::debug!("copy output to swapchain");
@@ -636,9 +643,9 @@ impl Renderer {
             .dst_image_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
             .regions(&image_copy);
 
-        unsafe {
-            device.cmd_copy_image2(command_buffer, &copy_image_info);
-        }
+        // unsafe {
+        //     device.cmd_copy_image2(command_buffer, &copy_image_info);
+        // }
 
         log::debug!("output: transfer read -> color attachment");
         log::debug!("swapchain: transfer write -> present src");
@@ -677,14 +684,14 @@ impl Renderer {
                 }),
         ];
         let dependency_info = vk::DependencyInfoKHR::default().image_memory_barriers(&barriers);
-        unsafe {
-            device.cmd_pipeline_barrier2(command_buffer, &dependency_info);
-        }
+        // unsafe {
+        //     device.cmd_pipeline_barrier2(command_buffer, &dependency_info);
+        // }
 
         log::debug!("end command buffer");
-        unsafe {
-            device.end_command_buffer(command_buffer).unwrap();
-        }
+        // unsafe {
+        //     device.end_command_buffer(command_buffer).unwrap();
+        // }
         log::debug!("submit command buffer");
         let command_buffer_infos =
             [CommandBufferSubmitInfo::default().command_buffer(command_buffer)];

@@ -6,8 +6,10 @@ use ash::{
 pub fn required_extension_names() -> Vec<*const i8> {
     vec![
         surface::NAME.as_ptr(),
-        ash::khr::xlib_surface::NAME.as_ptr(),
+        // ash::khr::xlib_surface::NAME.as_ptr(),
+        ash::ext::metal_surface::NAME.as_ptr(),
         debug_utils::NAME.as_ptr(),
         ash::khr::get_physical_device_properties2::NAME.as_ptr(),
+        ash::khr::portability_enumeration::NAME.as_ptr(),
     ]
 }

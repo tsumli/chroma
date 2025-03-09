@@ -56,6 +56,7 @@ impl Instance {
             .application_info(&app_info)
             .enabled_extension_names(&extension_names)
             .enabled_layer_names(&layer_names_ptrs)
+            .flags(vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR)
             .push_next(&mut debug_messenger_create_info);
 
         let instance = unsafe { entry.create_instance(&create_info, None)? };
